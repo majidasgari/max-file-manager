@@ -178,3 +178,9 @@ test('tree pane: side, width and auto-focus survive only in valid form', () => {
   assert.equal(mergePrefs({ treeWidth: 9999 }).treeWidth, 520)
   assert.equal(mergePrefs({}).treeAutoFocus, true)
 })
+
+test('gallery info sidebar: on by default and a chosen state survives', () => {
+  assert.equal(mergePrefs({}).galleryInfo, true)
+  assert.equal(mergePrefs({ galleryInfo: false }).galleryInfo, false)
+  assert.equal(mergePrefs({ galleryInfo: 'nonsense' as never }).galleryInfo, true)
+})

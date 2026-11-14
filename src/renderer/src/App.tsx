@@ -4091,6 +4091,8 @@ export default function App() {
           chrome={chrome}
           titlebarButtons={prefs.titlebarButtons}
           titlebarSide={prefs.titlebarSide}
+          infoOpen={prefs.galleryInfo}
+          onInfoToggle={(open) => updatePrefs({ galleryInfo: open })}
           onFullscreen={() => void toggleFullscreen()}
           onClose={() => {
             setGallery(null)

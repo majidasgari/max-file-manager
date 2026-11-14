@@ -141,6 +141,8 @@ export type Prefs = {
   treeWidth: number
   /** the tree follows the active pane's folder */
   treeAutoFocus: boolean
+  /** the gallery's information/edit sidebar is visible when the viewer opens */
+  galleryInfo: boolean
   /** user commands: name → shell line, `{path}` and `{dir}` are substituted */
   scripts: Record<string, string>
   // transfer filters
@@ -257,6 +259,7 @@ export const DEFAULTS: Prefs = {
   treePane: 'off',
   treeWidth: 232,
   treeAutoFocus: true,
+  galleryInfo: true,
   scripts: {},
   transferSkipExisting: false,
   transferNewerOnly: false,
@@ -529,6 +532,7 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
         ? Math.min(520, Math.max(160, Math.round(p.treeWidth)))
         : 232,
     treeAutoFocus: p.treeAutoFocus !== false,
+    galleryInfo: p.galleryInfo !== false,
     scripts: normalScripts(p.scripts),
     transferSkipExisting: p.transferSkipExisting === true,
     transferNewerOnly: p.transferNewerOnly === true,

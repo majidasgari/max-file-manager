@@ -38,6 +38,9 @@ type Props = {
   chrome: { customTitlebar: boolean }
   titlebarButtons: Prefs['titlebarButtons']
   titlebarSide: 'left' | 'right'
+  /** remembered across opens, like every other viewing preference */
+  infoOpen: boolean
+  onInfoToggle(open: boolean): void
 }
 
 export type ImageFormat = 'png' | 'jpeg' | 'webp'
@@ -66,6 +69,8 @@ export function Gallery({
   chrome,
   titlebarButtons,
   titlebarSide,
+  infoOpen,
+  onInfoToggle,
   onClose,
   onFullscreen,
   onSaved,
@@ -88,7 +93,7 @@ export function Gallery({
   const [busy, setBusy] = useState(false)
   /** live-only colour/light adjustments; applied with one click, never saved silently */
   const [adj, setAdj] = useState<Adj>(NO_ADJ)
-  const [info, setInfo] = useState(true)
+  const info = infoOpen
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const activeThumb = useRef<HTMLButtonElement | null>(null)
@@ -455,7 +460,7 @@ export function Gallery({
         case 'i':
         case 'I':
           e.preventDefault()
-          setInfo((v) => !v)
+          onInfoToggle(!info)
           break
       }
     }
@@ -499,7 +504,7 @@ export function Gallery({
           className={'tb' + (info ? ' on' : '')}
           title={t('اطلاعات تصویر و ویرایش (I)')}
           aria-pressed={info}
-          onClick={() => setInfo((v) => !v)}
+          onClick={() => onInfoToggle(!info)}
         >
           <InfoIcon />
         </button>
@@ -696,7 +701,7 @@ export function Gallery({
             })
           }
           onScale={(pct) => void applyScale(pct)}
-          onClose={() => setInfo(false)}
+          onClose={() => onInfoToggle(false)}
         />
       )}
       </div>
