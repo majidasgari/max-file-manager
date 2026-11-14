@@ -108,6 +108,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('sync:apply', { left, right, rows, mode, deleteExtra }),
   diffFiles: (a: string, b: string) => ipcRenderer.invoke('fs:diff', { a, b }),
   readText: (p: string) => ipcRenderer.invoke('fs:readText', p),
+  drafts: {
+    get: (p: string) => ipcRenderer.invoke('drafts:get', p),
+    set: (path: string, text: string) => ipcRenderer.invoke('drafts:set', { path, text }),
+    clear: (p: string) => ipcRenderer.invoke('drafts:clear', p)
+  },
   writeText: (path: string, text: string) => ipcRenderer.invoke('fs:writeText', { path, text }),
   htmlToPdf: (html: string, out: string, theme?: string) =>
     ipcRenderer.invoke('pdf:html', { html, out, theme }),
@@ -178,7 +183,9 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on('app:open-path', fn)
       return () => ipcRenderer.removeListener('app:open-path', fn)
     },
-    launchPath: () => ipcRenderer.invoke('app:launchPath')
+    launchPath: () => ipcRenderer.invoke('app:launchPath'),
+    openViewer: (kind: 'gallery' | 'editor', file: string) =>
+      ipcRenderer.invoke('app:openViewer', { kind, path: file })
   },
   undo: { run: () => ipcRenderer.invoke('undo:run'), depth: () => ipcRenderer.invoke('undo:depth') },
   window: {
@@ -202,6 +209,12 @@ contextBridge.exposeInMainWorld('api', {
     get: () => ipcRenderer.invoke('state:get'),
     set: (s: unknown) => ipcRenderer.invoke('state:set', s),
     setPrefs: (prefs: unknown) => ipcRenderer.invoke('state:setPrefs', prefs),
+    patchPrefs: (patch: Record<string, unknown>) => ipcRenderer.invoke('state:patchPrefs', patch),
+    onPrefsPatch: (cb: (patch: Record<string, unknown>) => void) => {
+      const fn = (_e: unknown, patch: Record<string, unknown>) => cb(patch)
+      ipcRenderer.on('state:prefs-patch', fn)
+      return () => ipcRenderer.removeListener('state:prefs-patch', fn)
+    },
     marks: (change?: { path: string; on: boolean }) => ipcRenderer.invoke('state:marks', change),
     onMarks: (cb: (marks: string[]) => void) => {
       const fn = (_e: unknown, marks: string[]) => cb(marks)

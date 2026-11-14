@@ -375,6 +375,12 @@ export type Api = {
   ): Promise<{ copied: number; deleted: number; skipped: number; errors: string[] }>
   diffFiles(a: string, b: string): Promise<DiffResult>
   readText(p: string): Promise<{ text: string; size: number } | { error: string }>
+  /** unsaved editor buffers, restored after a crash or a closed window */
+  drafts: {
+    get(path: string): Promise<{ text: string; at: number } | null>
+    set(path: string, text: string): Promise<{ text: string; at: number } | null>
+    clear(path: string): Promise<boolean>
+  }
   writeText(path: string, text: string): Promise<{ ok: true } | { error: string }>
   htmlToPdf(html: string, out: string, theme?: string): Promise<{ path: string } | { error: string }>
   createArchive(
@@ -443,6 +449,8 @@ export type Api = {
     onOpenPath(cb: (p: string) => void): () => void
     /** the path the process was launched with (null when started normally) */
     launchPath(): Promise<string | null>
+    /** open the image viewer or the text editor in its own window */
+    openViewer(kind: 'gallery' | 'editor', path: string): Promise<{ ok: true } | { error: string }>
   }
   undo: { run(): Promise<{ done: number; label: string }>; depth(): Promise<number> }
   window: {
@@ -463,6 +471,9 @@ export type Api = {
     get(): Promise<StoredState | null>
     set(s: StoredState): Promise<boolean>
     setPrefs(prefs: Record<string, unknown>): Promise<boolean>
+    /** merge a single preference (used by the standalone viewer/editor windows) */
+    patchPrefs(patch: Record<string, unknown>): Promise<Record<string, unknown>>
+    onPrefsPatch(cb: (patch: Record<string, unknown>) => void): () => void
     /** bookmarks live in the shared window state; the dialog and the sidebar read the same list */
     marks(change?: { path: string; on: boolean }): Promise<string[]>
     onMarks(cb: (marks: string[]) => void): () => void

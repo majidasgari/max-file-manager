@@ -150,6 +150,9 @@ the same `Entry` shape the UI uses (`name, path, dir, size, mtime, ext, mode, ui
 | `note` | `text` | message in the status bar |
 | `window` | `action` (`minimize`,`maximize`,`close`,`show`,`fullscreen`,`chrome`), `on?` | window control |
 
+Editor drafts are a UI safety net only: the file itself is still read/written with `read_text`
+and `write_text`, and a draft is never applied to the file without the user restoring it.
+
 The gallery's information sheet and edit tools add no new file operation: it reads `properties`
 and `tags` and writes through `image_save` / `image_save_as`, which agents already have.
 

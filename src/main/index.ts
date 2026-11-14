@@ -66,6 +66,7 @@ import {
 } from './searchdb.ts'
 import { checkUpdate, openRelease } from './updates.ts'
 import { migrateLegacyStore, readStore, writeStore } from './store.ts'
+import { createDrafts } from './drafts.ts'
 import {
   mcpFile,
   logMcpError,
@@ -134,6 +135,20 @@ function bootState(): any {
   } catch {
     return {}
   }
+}
+
+/**
+ * Editor drafts live in the same app table as the settings: one key per file plus an index, so a
+ * crash or a closed window never loses typing. Expired/over-quota drafts are pruned on boot.
+ */
+const drafts = createDrafts({
+  get: (key) => readStore<string>(key),
+  set: (key, value) => writeStore(key, value)
+})
+try {
+  drafts.prune()
+} catch {
+  // a broken index must never stop the app from starting
 }
 
 const boot = bootState()
@@ -640,6 +655,7 @@ function createWindow(): BrowserWindow {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  for (const w of childWindows) if (!w.isDestroyed()) w.destroy()
   portalServer.stop()
   void stopMcp()
 })
@@ -654,6 +670,55 @@ async function withAppIcons(apps: DesktopApp[]): Promise<DesktopApp[]> {
   return Promise.all(
     apps.map(async (a) => (a.iconPath ? a : { ...a, iconPath: await appIconFile(a.id, dir) }))
   )
+}
+
+/** Window IPC must act on the window that asked: viewer/editor windows are separate. */
+const senderWindow = (e: Electron.IpcMainInvokeEvent): BrowserWindow | null =>
+  BrowserWindow.fromWebContents(e.sender) ?? win
+
+/** Track the standalone viewer/editor windows so quitting closes them too. */
+const childWindows = new Set<BrowserWindow>()
+
+function openStandalone(kind: 'gallery' | 'editor', file: string): { ok: true } | { error: string } {
+  try {
+    const frameless = chrome.customTitlebar
+    const w = new BrowserWindow({
+      width: kind === 'gallery' ? 1100 : 980,
+      height: kind === 'gallery' ? 760 : 720,
+      minWidth: 520,
+      minHeight: 380,
+      title: path.basename(file),
+      frame: !frameless,
+      hasShadow: false,
+      backgroundColor: '#16181d',
+      icon: windowIcon(),
+      autoHideMenuBar: true,
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/index.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false
+      }
+    })
+    childWindows.add(w)
+    w.on('closed', () => childWindows.delete(w))
+    w.on('maximize', () => w.webContents.send('window:maximized', true))
+    w.on('unmaximize', () => w.webContents.send('window:maximized', false))
+    w.once('ready-to-show', () => w.show())
+    const query = { [kind === 'gallery' ? 'gallery' : 'editor']: '1', path: file }
+    const devUrl = process.env['ELECTRON_RENDERER_URL']
+    if (devUrl) {
+      const url = new URL(devUrl)
+      for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
+      void w.loadURL(url.toString())
+    } else {
+      void w.loadFile(path.join(__dirname, '../renderer/index.html'), { query })
+    }
+    return { ok: true }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 app.whenReady().then(async () => {
@@ -1436,6 +1501,19 @@ app.whenReady().then(async () => {
   )
   ipcMain.handle('fs:diff', (_e, a: { a: string; b: string }) => diffFiles(a?.a ?? '', a?.b ?? ''))
   ipcMain.handle('fs:readText', (_e, p: string) => readTextFile(p ?? ''))
+  ipcMain.handle('drafts:get', (_e, p: string) =>
+    path.isAbsolute(p ?? '') ? drafts.get(p) : null
+  )
+  ipcMain.handle('drafts:set', (_e, a: { path?: string; text?: string }) => {
+    const p = a?.path ?? ''
+    if (!path.isAbsolute(p) || typeof a?.text !== 'string') return null
+    if (a.text.length > 8 * 1024 * 1024) return null // the same ceiling as writeText
+    return drafts.set(p, a.text)
+  })
+  ipcMain.handle('drafts:clear', (_e, p: string) => {
+    if (path.isAbsolute(p ?? '')) drafts.clear(p)
+    return true
+  })
   ipcMain.handle('fs:writeText', (_e, a: { path: string; text: string }) =>
     writeTextFile(a?.path ?? '', String(a?.text ?? ''))
   )
@@ -1483,6 +1561,10 @@ app.whenReady().then(async () => {
     engine.createFile(dir, name, content)
   )
   ipcMain.handle('app:launchPath', () => firstPath)
+  ipcMain.handle('app:openViewer', (_e, a: { kind?: string; path?: string }) => {
+    if (!path.isAbsolute(a?.path ?? '')) return { error: 'bad_path' }
+    return openStandalone(a?.kind === 'editor' ? 'editor' : 'gallery', a.path!)
+  })
   ipcMain.handle('fs:symlink', (_e, target: string, linkPath: string) =>
     typeof target === 'string' && typeof linkPath === 'string'
       ? createSymlink(target, linkPath)
@@ -1550,15 +1632,16 @@ app.whenReady().then(async () => {
   ipcMain.handle('desktop:setDefaultFileManager', () =>
     setDefaultFileManager(process.execPath, app.getAppPath())
   )
-  ipcMain.handle('window:control', (_e, action: 'minimize' | 'maximize' | 'close') => {
-    if (!win) return
-    if (action === 'minimize') win.minimize()
-    else if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize()
-    else win.close()
+  ipcMain.handle('window:control', (e, action: 'minimize' | 'maximize' | 'close') => {
+    const w = senderWindow(e)
+    if (!w) return
+    if (action === 'minimize') w.minimize()
+    else if (action === 'maximize') (w.isMaximized() ? w.unmaximize() : w.maximize())
+    else w.close()
   })
-  ipcMain.handle('window:isMax', () => !!win?.isMaximized())
-  ipcMain.handle('window:fullscreen', (_e, on: boolean) => {
-    win?.setFullScreen(!!on)
+  ipcMain.handle('window:isMax', (e) => !!senderWindow(e)?.isMaximized())
+  ipcMain.handle('window:fullscreen', (e, on: boolean) => {
+    senderWindow(e)?.setFullScreen(!!on)
     return !!on
   })
   ipcMain.handle('window:getChrome', () => chrome)
@@ -1622,6 +1705,19 @@ app.whenReady().then(async () => {
     const st = (await readState()) ?? {}
     writeStore('state', { ...st, prefs })
     return true
+  })
+  /**
+   * A viewer/editor window changes one preference without owning the whole object: merge it into
+   * the stored prefs and tell every window, so the main window does not overwrite it later.
+   */
+  ipcMain.handle('state:patchPrefs', async (_e, patch: Record<string, unknown>) => {
+    const st = (await readState()) ?? {}
+    const prefs = { ...(st.prefs ?? {}), ...(patch ?? {}) }
+    writeStore('state', { ...st, prefs })
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send('state:prefs-patch', patch)
+    }
+    return prefs
   })
 
   ipcMain.handle('state:marks', async (_e, change?: { path?: string; on?: boolean }) => {

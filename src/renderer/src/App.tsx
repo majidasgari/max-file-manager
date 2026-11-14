@@ -442,6 +442,11 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    // a standalone viewer/editor window changed a preference: adopt it instead of overwriting it
+    return api.state.onPrefsPatch((patch) => updatePrefs(patch as Partial<Prefs>))
+  }, [])
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
 
@@ -1364,6 +1369,20 @@ export default function App() {
       panes?.[i].listing?.entries.find((x) => x.path === p) ??
       panes?.[i].results?.find((x) => x.path === p)
     if (!e) return
+    if (e.dir) {
+      go(i, e.path)
+      return
+    }
+    // thumbnail („gallery") view opens the viewer/editor in its own window, so the file manager
+    // stays visible behind it; the list keeps the inline editor and the in-window gallery
+    if (viewOf(i) === 'grid' && isImage(e.ext)) {
+      void api.app.openViewer('gallery', e.path)
+      return
+    }
+    if (viewOf(i) === 'grid' && opensInEditor(e)) {
+      void api.app.openViewer('editor', e.path)
+      return
+    }
     const action = openAction(e, prefs.doubleClick, {
       hasDefaultApp: !!prefs.defaultApps[e.ext],
       virtual: !!panes?.[i].archive
@@ -2161,6 +2180,12 @@ export default function App() {
         if (path) setOpenWith(path)
         else if (curPath) setOpenWith(curPath)
         break
+      case 'openNewWindow':
+        if (path) {
+          const picked = entryOf(active, path)
+          if (picked) void api.app.openViewer(isImage(picked.ext) ? 'gallery' : 'editor', path)
+        }
+        break
       case 'properties':
         if (path) setPropsFor(path)
         break
@@ -2397,6 +2422,15 @@ export default function App() {
 
     const entryMenu: MenuItem[] = [
       { id: 'open', label: entry?.dir ? t('باز کردن') : t('اجرا کردن'), icon: <PlayIcon /> },
+      ...(entry && !entry.dir && (isImage(entry.ext) || opensInEditor(entry))
+        ? [
+            {
+              id: 'openNewWindow',
+              label: t('باز کردن در پنجرهٔ نو'),
+              icon: <SplitIcon />
+            } as MenuItem
+          ]
+        : []),
       openWithItem,
       { id: 'preview', label: t('پیش‌نمایش'), icon: <PreviewIcon /> },
       { id: 'previewOther', label: t('پیش‌نمایش در پنجرهٔ مقابل'), key: 'F3', icon: <PreviewIcon /> },

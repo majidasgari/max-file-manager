@@ -5171,3 +5171,56 @@ button.bd-row:hover {
     width: 244px;
   }
 }
+
+/* ---------- standalone viewer/editor windows ---------- */
+.standalone-note {
+  position: fixed;
+  inset-inline-end: 16px;
+  bottom: 16px;
+  z-index: 90;
+  max-width: 70vw;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 11.5px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+/* the editor has no caption buttons of its own: give the standalone window a handle and buttons */
+.standalone-editor .ed-head {
+  -webkit-app-region: drag;
+  padding-inline-end: 104px;
+}
+.standalone-editor .ed-head button,
+.standalone-editor .ed-head .seg {
+  -webkit-app-region: no-drag;
+}
+.standalone-winbtns {
+  position: fixed;
+  top: 0;
+  inset-inline-end: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  z-index: 80;
+  -webkit-app-region: no-drag;
+}
+
+/* editor draft banner */
+.ed-draft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 11.5px;
+}
+.ed-draft .btn.mini {
+  padding: 3px 9px;
+}

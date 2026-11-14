@@ -3,23 +3,14 @@ import { api, type Entry, type PortalRequestData } from './api'
 import { matchesPortalFilter } from '../../shared/portal-filters.ts'
 import { crumbs, baseName, fa, fmtDate, fmtSize, joinPath, sortEntries } from './format'
 import { ArrowUpIcon, ChevronDownIcon, ChevronLeftIcon, ConfirmIcon, EntryIcon, EyeIcon, EyeOffIcon, FolderIcon, HomeIcon, RefreshIcon, StarIcon } from './Icons'
-import { fontStack, mergePrefs, migrateLegacy, type Prefs } from './prefs'
-import { setLang, t } from './i18n'
+import { mergePrefs, migrateLegacy, type Prefs } from './prefs'
+import { t } from './i18n'
+import { applyPrefs } from './apply-prefs'
 
 const ROW_H = 38
 const OVERSCAN = 8
 
 type Place = { name: string; path: string }
-
-function applyPrefs(prefs: Prefs): void {
-  setLang(prefs.lang)
-  const dark = prefs.theme === 'system'
-    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
-    : prefs.theme !== 'light'
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-  document.documentElement.dataset.colorTheme = prefs.colorTheme
-  document.documentElement.style.setProperty('--ui-font', fontStack(prefs.fontFamily))
-}
 
 export function PortalPicker() {
   const [request, setRequest] = useState<PortalRequestData | null>(null)

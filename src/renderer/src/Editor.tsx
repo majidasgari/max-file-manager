@@ -1,7 +1,7 @@
 import { t } from './i18n.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
-import { baseName } from './format'
+import { baseName, fmtDate } from './format'
 import { highlightCode, langFor } from './highlight'
 import { renderMarkdown } from './md'
 import { dirOfText } from './direction'
@@ -14,6 +14,8 @@ type Props = {
   /** sit in the preview slot instead of covering the window */
   docked?: boolean
   onToggleMax?(): void
+  /** the standalone window already has caption buttons */
+  hideClose?: boolean
   onClose(): void
   onNote(msg: string): void
   /** the file changed on disk, so the pane behind the editor reloads */
@@ -22,7 +24,16 @@ type Props = {
 
 const MD = /\.(md|markdown|mdx)$/i
 
-export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNote, onSaved }: Props) {
+export function Editor({
+  path,
+  theme,
+  docked = false,
+  onToggleMax,
+  hideClose = false,
+  onClose,
+  onNote,
+  onSaved
+}: Props) {
   const [text, setText] = useState<string | null>(null)
   const [saved, setSaved] = useState('')
   const [err, setErr] = useState('')
@@ -41,6 +52,9 @@ export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNo
   /** the last fully-loaded buffer, so switching files can save the old one first */
   const buf = useRef<{ path: string; text: string | null; saved: string }>({ path, text: null, saved: '' })
   const [loadedPath, setLoadedPath] = useState<string | null>(null)
+  /** a draft from a previous session, offered instead of restored silently */
+  const [draftText, setDraftText] = useState<string | null>(null)
+  const [draftAt, setDraftAt] = useState<number | null>(null)
 
   const isMd = MD.test(path)
   const lang = useMemo(() => langFor(path), [path])
@@ -70,6 +84,8 @@ export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNo
         setErr(r.error)
         setText('')
         setSaved('')
+        setDraftText(null)
+        setDraftAt(null)
         setLoadedPath(path)
         return
       }
@@ -78,6 +94,16 @@ export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNo
       setSaved(r.text)
       setMode('visual')
       setLoadedPath(path)
+      // a draft is offered, never applied silently: the file on disk is the truth
+      const draft = await api.drafts.get(path).catch(() => null)
+      if (!live) return
+      if (draft && typeof draft.text === 'string' && draft.text !== r.text) {
+        setDraftText(draft.text)
+        setDraftAt(draft.at)
+      } else {
+        setDraftText(null)
+        setDraftAt(null)
+      }
     })()
     return () => {
       live = false
@@ -87,6 +113,20 @@ export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNo
 
   const dirty = text !== null && text !== saved
   const rich = isMd && mode === 'visual'
+
+  /** The buffer is kept as a draft while it differs from the file (debounced, then on close). */
+  useEffect(() => {
+    if (loadedPath !== path || text === null || text === saved) return
+    const timer = setTimeout(() => void api.drafts.set(path, text), 700)
+    return () => clearTimeout(timer)
+  }, [path, loadedPath, text, saved])
+
+  useEffect(() => {
+    return () => {
+      const b = buf.current
+      if (b.text !== null && b.text !== b.saved) void api.drafts.set(b.path, b.text)
+    }
+  }, [])
 
   useEffect(() => {
     if (!rich || text === null) return
@@ -130,6 +170,9 @@ export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNo
       return
     }
     setSaved(text)
+    setDraftText(null)
+    setDraftAt(null)
+    void api.drafts.clear(path)
     onNote(`${baseName(path)} ذخیره شد`)
     onSaved()
   }
@@ -187,6 +230,37 @@ export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNo
 
   return (
     <div className={'ed-shell' + (docked ? ' docked' : '')}>
+      {draftText !== null && (
+        <div className="ed-draft" dir="auto">
+          <span>
+            {t('پیش‌نویس ذخیره‌شده از {time}', {
+              time: draftAt ? fmtDate(draftAt, 'iso', true) : ''
+            })}
+          </span>
+          <span className="spacer" />
+          <button
+            className="btn mini"
+            onClick={() => {
+              setText(draftText)
+              setDraftText(null)
+              setDraftAt(null)
+              onNote(t('پیش‌نویس بازیابی شد؛ هنوز ذخیره نشده'))
+            }}
+          >
+            {t('بازیابی پیش‌نویس')}
+          </button>
+          <button
+            className="btn ghost mini"
+            onClick={() => {
+              void api.drafts.clear(path)
+              setDraftText(null)
+              setDraftAt(null)
+            }}
+          >
+            {t('دور انداختن پیش‌نویس')}
+          </button>
+        </div>
+      )}
       <header className="ed-head">
         <span className="ed-name" dir="auto" title={path}>
           {baseName(path)}
@@ -246,9 +320,11 @@ export function Editor({ path, theme, docked = false, onToggleMax, onClose, onNo
             {docked ? '⛶' : '❐'}
           </button>
         )}
-        <button className="tb" title={t(t('بستن (Esc)'))} onClick={onClose}>
-          <XIcon size={12} />
-        </button>
+        {!hideClose && (
+          <button className="tb" title={t(t('بستن (Esc)'))} onClick={onClose}>
+            <XIcon size={12} />
+          </button>
+        )}
       </header>
 
       {err ? (
