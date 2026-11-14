@@ -2722,6 +2722,18 @@ html[data-rounded='0'] .app {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+.ctx-color.action {
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  border: 1px dashed var(--line);
+  color: var(--dim);
+  box-shadow: none;
+}
+.ctx-color.action:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .ctx-color.none {
   display: grid;
   place-items: center;

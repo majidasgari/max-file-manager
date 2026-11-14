@@ -202,3 +202,13 @@ test('removable devices: shown by default, can be turned off', () => {
   assert.equal(mergePrefs({ sidebarDrives: false }).sidebarDrives, false)
   assert.equal(mergePrefs({ sidebarDrives: 'no' as never }).sidebarDrives, true)
 })
+
+test('Places tree: expanded folders are absolute paths, deduped and capped', () => {
+  assert.deepEqual(mergePrefs({}).sidebarTreeOpen, [])
+  assert.deepEqual(
+    mergePrefs({ sidebarTreeOpen: ['/home', '/home', 'relative', '/data', 42 as never] }).sidebarTreeOpen,
+    ['/home', '/data']
+  )
+  const many = Array.from({ length: 400 }, (_, i) => `/d${i}`)
+  assert.equal(mergePrefs({ sidebarTreeOpen: many }).sidebarTreeOpen.length, 300)
+})

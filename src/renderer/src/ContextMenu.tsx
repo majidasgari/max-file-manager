@@ -36,6 +36,8 @@ type Props = {
   /** folder-colour dots under the quick actions; click applies the colour ('' clears it) */
   swatches?: { value: string; label: string; active?: boolean }[]
   onSwatch?(value: string): void
+  /** one extra circle beside the colours — the folder's icon picker */
+  swatchAction?: { title: string; icon: React.ReactNode; onClick(): void }
   onPick(id: string): void
   onClose(): void
 }
@@ -189,7 +191,17 @@ function SubmenuPanel({
   )
 }
 
-export function ContextMenu({ x, y, items, actions, swatches, onSwatch, onPick, onClose }: Props) {
+export function ContextMenu({
+  x,
+  y,
+  items,
+  actions,
+  swatches,
+  onSwatch,
+  swatchAction,
+  onPick,
+  onClose
+}: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [subs, setSubs] = useState<SubLevel[]>([])
   const closeTimer = useRef<number | null>(null)
@@ -284,9 +296,9 @@ export function ContextMenu({ x, y, items, actions, swatches, onSwatch, onPick, 
           </div>
         </>
       )}
-      {swatches && swatches.length > 0 && (
+      {((swatches && swatches.length > 0) || swatchAction) && (
         <div className="ctx-colors">
-          {swatches.map((s) => (
+          {(swatches ?? []).map((s) => (
             <button
               key={s.value || 'none'}
               className={
@@ -303,6 +315,19 @@ export function ContextMenu({ x, y, items, actions, swatches, onSwatch, onPick, 
               {s.value ? '' : '×'}
             </button>
           ))}
+          {swatchAction && (
+            <button
+              className="ctx-color action"
+              title={swatchAction.title}
+              aria-label={swatchAction.title}
+              onClick={() => {
+                swatchAction.onClick()
+                onClose()
+              }}
+            >
+              {swatchAction.icon}
+            </button>
+          )}
         </div>
       )}
       {subs.map((s, idx) => (

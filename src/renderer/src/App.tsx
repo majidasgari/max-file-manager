@@ -1629,9 +1629,15 @@ export default function App() {
   }
 
   /** The blank-area menu means the folder that is open right now. */
-  const openFolderLookAt = async (dir: string) => {
-    const meta = await api.getMeta(dir)
-    setFolderLook({ dirs: [dir], name: baseName(dir), meta })
+  const openFolderLookAt = async (dirs: string[]) => {
+    const list = dirs.filter((d) => !!d)
+    if (!list.length) return
+    const meta = await api.getMeta(list[0])
+    setFolderLook({
+      dirs: list,
+      name: list.length === 1 ? baseName(list[0]) : t('{n} پوشه', { n: fa(list.length) }),
+      meta
+    })
   }
 
   const saveFolderLook = async (patch: FolderMeta) => {
@@ -2141,7 +2147,7 @@ export default function App() {
         break
       case 'look':
         if (path) void openFolderLook(active, path)
-        else void openFolderLookAt(tabOf(panes[active]))
+        else void openFolderLookAt([tabOf(panes[active])])
         break
       case 'hideEntry':
         if (path) {
@@ -2726,6 +2732,17 @@ export default function App() {
       reloadAll()
       setNote(color ? t('رنگ اعمال شد') : t('رنگ برداشته شد'))
     })
+  }
+
+  /** The extra circle beside the colours opens the folder's colour/icon sheet. */
+  const swatchAction = (): { title: string; icon: React.ReactNode; onClick(): void } | undefined => {
+    const dirs = colorTargets().filter((p) => entryOf(active, p)?.dir)
+    if (!dirs.length) return undefined
+    return {
+      title: t('انتخاب آیکون پوشه'),
+      icon: <PaletteIcon size={11} />,
+      onClick: () => void openFolderLookAt(dirs)
+    }
   }
 
   const colorSwatches = (): { value: string; label: string; active?: boolean }[] | undefined => {
@@ -3530,6 +3547,14 @@ export default function App() {
               onPickLabel={(id) => setPanes((p) => p && patch(p, active, { filter: '#' + id }))}
               roots={roots}
               marks={marks}
+              treeExpanded={prefs.sidebarTreeOpen}
+              onTreeToggle={(path, open) =>
+                updatePrefs({
+                  sidebarTreeOpen: open
+                    ? [...prefs.sidebarTreeOpen.filter((p) => p !== path), path]
+                    : prefs.sidebarTreeOpen.filter((p) => p !== path)
+                })
+              }
               markNames={markNames}
               onRenameMark={renameMark}
               renameRequest={markRename}
@@ -3837,6 +3862,14 @@ export default function App() {
                 onPickLabel={(id) => setPanes((p) => p && patch(p, active, { filter: '#' + id }))}
                 roots={roots}
                 marks={marks}
+                treeExpanded={prefs.sidebarTreeOpen}
+                onTreeToggle={(path, open) =>
+                  updatePrefs({
+                    sidebarTreeOpen: open
+                      ? [...prefs.sidebarTreeOpen.filter((p) => p !== path), path]
+                      : prefs.sidebarTreeOpen.filter((p) => p !== path)
+                  })
+                }
                 markNames={markNames}
                 onRenameMark={renameMark}
                 renameRequest={markRename}
@@ -4276,6 +4309,7 @@ export default function App() {
           actions={quickActions()}
           swatches={colorSwatches()}
           onSwatch={applyEntryColor}
+          swatchAction={swatchAction()}
           onPick={pickMenu}
           onClose={() => setMenu(null)}
         />
@@ -4359,7 +4393,7 @@ export default function App() {
           onChangeIcon={() => {
             const target = propsFor
             setPropsFor(null)
-            if (target) void openFolderLookAt(target)
+            if (target) void openFolderLookAt([target])
           }}
         />
       )}

@@ -1,5 +1,5 @@
 import { t } from './i18n.ts'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type DirRef, type Drive } from './api'
 import { baseName, fa } from './format'
 import { clearDragPaths, keepDragPaths, lastDragPaths } from './drag'
@@ -62,6 +62,9 @@ type Props = {
   /** custom bookmark titles (path → title); empty means «use the folder name» */
   markNames?: Record<string, string>
   onRenameMark?(path: string, title: string | null): void
+  /** folders expanded under Places, remembered by the app across restarts */
+  treeExpanded?: string[]
+  onTreeToggle?(path: string, open: boolean): void
   /** the app asks the row to open its inline editor (context-menu «Rename») */
   renameRequest?: { path: string; tick: number } | null
   onMarkMenu?(path: string, x: number, y: number): void
@@ -94,6 +97,8 @@ export function Sidebar({
   onPickLabel,
   roots,
   marks,
+  treeExpanded,
+  onTreeToggle,
   markNames,
   onRenameMark,
   renameRequest,
@@ -140,7 +145,12 @@ export function Sidebar({
   }
   const [dropMarkTarget, setDropMarkTarget] = useState<{ idx: number; place: 'before' | 'after' } | null>(null)
   /** Expanded tree nodes in «Places», and the sub-folders already read for them (lazy). */
-  const [treeOpen, setTreeOpen] = useState<Set<string>>(() => new Set())
+  const [treeOpenLocal, setTreeOpenLocal] = useState<Set<string>>(() => new Set())
+  // the app owns the expanded set when it passes one: it survives a restart
+  const treeOpen = useMemo(
+    () => (treeExpanded ? new Set(treeExpanded) : treeOpenLocal),
+    [treeExpanded, treeOpenLocal]
+  )
   const [treeKids, setTreeKids] = useState<Record<string, DirRef[]>>({})
   const treeLoading = useRef<Set<string>>(new Set())
   const [localCollapsed, setLocalCollapsed] = useState<Set<string>>(() => new Set())
@@ -274,14 +284,24 @@ export function Sidebar({
 
   const toggleTree = (dir: string): void => {
     const willOpen = !treeOpen.has(dir)
-    setTreeOpen((prev) => {
-      const next = new Set(prev)
-      if (willOpen) next.add(dir)
-      else next.delete(dir)
-      return next
-    })
+    if (onTreeToggle) {
+      onTreeToggle(dir, willOpen)
+    } else {
+      setTreeOpenLocal((prev) => {
+        const next = new Set(prev)
+        if (willOpen) next.add(dir)
+        else next.delete(dir)
+        return next
+      })
+    }
     if (willOpen) loadTreeKids(dir)
   }
+
+  /** after a restart the saved nodes are expanded: read their children again */
+  useEffect(() => {
+    for (const dir of treeExpanded ?? []) loadTreeKids(dir)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeExpanded?.join('\u0000')])
 
   // the hidden-files switch changes what a folder contains: drop the cache and re-read open nodes
   useEffect(() => {

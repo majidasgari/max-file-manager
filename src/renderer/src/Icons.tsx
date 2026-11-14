@@ -412,7 +412,7 @@ export const ArchiveOpenIcon = () => (
     <path d="M12 11v2M12 15v1" />
   </S>
 )
-export const PaletteIcon = () => (
+export const PaletteIcon = ({ size = 15 }: { size?: number }) => (
   <S>
     <path d="M12 3a9 9 0 1 0 0 18c1.7 0 2.5-1 2.5-2 0-1.6-1.5-1.7-1.5-3 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-3.6-4-6.4-9-6.4z" />
     <path d="M7.5 9.5h.01M11 7h.01M15 8h.01" />

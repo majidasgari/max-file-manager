@@ -100,6 +100,8 @@ export type Prefs = {
   sidebarCollapsed: string[]
   /** show the removable-devices section in the sidebar */
   sidebarDrives: boolean
+  /** folders left expanded in the Places tree (absolute paths) */
+  sidebarTreeOpen: string[]
   /** command id → accelerator text; '' means the command has no key */
   shortcuts: Record<string, string>
   /** command ids shown as buttons in the toolbar, in order */
@@ -194,6 +196,21 @@ export type CustomCommand = {
 /** Metadata files nobody wants to see; the user can extend or clear the list. */
 export const DEFAULT_IGNORE_FILES = ['.directory', 'desktop.ini']
 
+/** Expanded Places-tree nodes: absolute paths only, deduped, capped (a tree is not a state file). */
+const cleanTreeOpen = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const value of raw) {
+    if (typeof value !== 'string') continue
+    const p = value.trim()
+    const absolute = p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
+    if (!absolute || p.length > 4096) continue
+    if (!out.includes(p)) out.push(p)
+    if (out.length >= 300) break
+  }
+  return out
+}
+
 const cleanIgnoreFiles = (raw: unknown): string[] => {
   if (!Array.isArray(raw)) return [...DEFAULT_IGNORE_FILES]
   const out: string[] = []
@@ -258,6 +275,7 @@ export const DEFAULTS: Prefs = {
   sidebarTone: 1,
   sidebarCollapsed: [],
   sidebarDrives: true,
+  sidebarTreeOpen: [],
   shortcuts: DEFAULT_SHORTCUTS,
   toolbar: DEFAULT_TOOLBAR,
   toolbarMode: 'icon-text',
@@ -515,6 +533,7 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
         ? p.sidebarCollapsed.filter((x): x is string => typeof x === 'string')
         : [],
     sidebarDrives: p.sidebarDrives !== false,
+    sidebarTreeOpen: cleanTreeOpen(p.sidebarTreeOpen),
     shortcuts,
     toolbar: normalToolbar(p.toolbar),
     toolbarMode:
