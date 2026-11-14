@@ -363,10 +363,10 @@ export type Api = {
   }
   tags(paths: string[]): Promise<Record<string, Tags>>
   writeTags(path: string, fields: Record<string, string>): Promise<{ ok: true } | { error: string }>
-  saveImageAs(src: string, dataUrl: string): Promise<{ path: string } | { error: string }>
+  saveImageAs(src: string, dataUrl: string, dest?: string): Promise<{ path: string } | { error: string }>
   convertImages(
     files: string[],
-    opts: { format: 'jpeg' | 'png' | 'webp'; maxSide: number; quality: number; dest?: string }
+    opts: { format: 'jpeg' | 'png' | 'webp' | 'bmp'; maxSide: number; quality: number; dest?: string }
   ): Promise<{ done: number; errors: string[]; outDir: string }>
   exportListing(
     dir: string,

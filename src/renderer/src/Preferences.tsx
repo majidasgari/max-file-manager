@@ -816,6 +816,11 @@ export function Preferences({ prefs, palette, openPage, searchRoots, onChange, o
                 check(prefs.treeAutoFocus, 'treeAutoFocus')
               )}
               {row(
+                t('حافظه‌های جانبی در سایدبار'),
+                t('بخش USB و دیسک‌های جداشدنی در سایدبار نمایش داده شود'),
+                check(prefs.sidebarDrives, 'sidebarDrives')
+              )}
+              {row(
                 t('سطح رنگ تم سایدبار'),
                 t('تنظیم میزان غلظت رنگ تم روی سایدبار در ۶ سطح (۱ = کمترین رنگ، ۶ = پررنگ‌ترین)'),
                 seg(

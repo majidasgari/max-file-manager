@@ -16,7 +16,7 @@ import { Pane, type FolderView, type PaneState, type SearchQuery, type View } fr
 import { PreviewPanel } from './PreviewPanel'
 import { RenameDialog } from './RenameDialog'
 import { BreakdownDialog } from './BreakdownDialog'
-import { ConvertDialog, RatingDialog, TagDialog, convertToWebp } from './RatingDialog'
+import { ConvertDialog, RatingDialog, TagDialog, convertInRenderer } from './RatingDialog'
 import { rowsOf } from '../../shared/export.ts'
 import { PresetsDialog } from './PresetsDialog'
 import { Preferences } from './Preferences'
@@ -3552,7 +3552,7 @@ export default function App() {
               }}
               onMarkDrop={addMarks}
               onReorderMarks={handleReorderMarks}
-              drives={drives}
+              drives={prefs.sidebarDrives ? drives : undefined}
               onMountDrive={handleMountDrive}
               onUnmountDrive={handleUnmountDrive}
               collapsed={prefs.sidebarCollapsed}
@@ -3862,7 +3862,7 @@ export default function App() {
               }}
                 onMarkDrop={addMarks}
                 onReorderMarks={handleReorderMarks}
-                drives={drives}
+                drives={prefs.sidebarDrives ? drives : undefined}
                 onMountDrive={handleMountDrive}
                 onUnmountDrive={handleUnmountDrive}
                 onPointerDownHead={startFloatDrag}
@@ -4135,14 +4135,21 @@ export default function App() {
           onClose={() => setConvertAsk(null)}
           onRun={(opts) => {
             setConvertAsk({ ...convertAsk, busy: true })
+            const dest = opts.toOtherPane ? tabOf(panes![1 - active]) : undefined
+            // WebP/BMP encode on a canvas (and decode GIF/BMP/AVIF that nativeImage cannot read)
             const job =
-              opts.format === 'webp'
-                ? convertToWebp(convertAsk.files, opts.maxSide, opts.quality)
+              opts.format === 'webp' || opts.format === 'bmp'
+                ? convertInRenderer(convertAsk.files, {
+                    format: opts.format,
+                    maxSide: opts.maxSide,
+                    quality: opts.quality,
+                    dest
+                  })
                 : api.convertImages(convertAsk.files, {
                     format: opts.format,
                     maxSide: opts.maxSide,
                     quality: opts.quality,
-                    dest: opts.toOtherPane ? tabOf(panes![1 - active]) : undefined
+                    dest
                   })
             void job
               .then(async (r) => {

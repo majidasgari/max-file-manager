@@ -1463,8 +1463,8 @@ app.whenReady().then(async () => {
     }
     return out
   })
-  ipcMain.handle('image:saveAs', (_e, a: { src: string; dataUrl: string }) =>
-    saveImageAs(a?.src ?? '', String(a?.dataUrl ?? ''))
+  ipcMain.handle('image:saveAs', (_e, a: { src: string; dataUrl: string; dest?: string }) =>
+    saveImageAs(a?.src ?? '', String(a?.dataUrl ?? ''), a?.dest)
   )
   ipcMain.handle('meta:writeTags', (_e, a: { path: string; fields: Record<string, string> }) =>
     writeId3(a?.path ?? '', a?.fields ?? {})

@@ -609,8 +609,23 @@ export function Sidebar({
           </div>
         ))}
 
-      {drives && drives.length > 0 && <div className="side-title">{t('حافظه‌های جانبی')}</div>}
-      {drives?.map((d) => {
+      {drives && drives.length > 0 && (
+        <div className="side-section-head">
+          <button
+            type="button"
+            className="side-section-toggle"
+            onClick={() => toggleSection('drives')}
+            aria-expanded={!isCollapsed('drives')}
+          >
+            <span className="side-twisty">
+              {!isCollapsed('drives') ? <ChevronDownIcon size={11} /> : <ChevronLeftIcon size={11} />}
+            </span>
+            <span className="side-title">{t('حافظه‌های جانبی')}</span>
+            <span className="side-section-badge">{fa(drives.length)}</span>
+          </button>
+        </div>
+      )}
+      {!isCollapsed('drives') && drives?.map((d) => {
         const isCur = Boolean(
           d.mountpoint && (activePath === d.mountpoint || activePath.startsWith(d.mountpoint + '/'))
         )

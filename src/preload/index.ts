@@ -97,7 +97,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   tags: (paths: string[]) => ipcRenderer.invoke('fs:tags', paths),
   writeTags: (path: string, fields: unknown) => ipcRenderer.invoke('meta:writeTags', { path, fields }),
-  saveImageAs: (src: string, dataUrl: string) => ipcRenderer.invoke('image:saveAs', { src, dataUrl }),
+  saveImageAs: (src: string, dataUrl: string, dest?: string) =>
+    ipcRenderer.invoke('image:saveAs', { src, dataUrl, dest }),
   convertImages: (files: string[], opts: unknown) =>
     ipcRenderer.invoke('image:batchConvert', { files, opts }),
   exportListing: (dir: string, name: string, rows: unknown, format: string, theme?: string) =>

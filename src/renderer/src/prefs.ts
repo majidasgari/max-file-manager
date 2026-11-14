@@ -96,8 +96,10 @@ export type Prefs = {
   sidebarWidth: number
   /** 1 = ultra mild (default), 2 = soft, 3 = gentle, 4 = medium, 5 = pronounced, 6 = vivid */
   sidebarTone: 1 | 2 | 3 | 4 | 5 | 6
-  /** ids of sidebar sections currently collapsed ('places' | 'bookmarks' | 'labels') */
+  /** ids of sidebar sections currently collapsed ('places' | 'bookmarks' | 'labels' | 'drives') */
   sidebarCollapsed: string[]
+  /** show the removable-devices section in the sidebar */
+  sidebarDrives: boolean
   /** command id → accelerator text; '' means the command has no key */
   shortcuts: Record<string, string>
   /** command ids shown as buttons in the toolbar, in order */
@@ -255,6 +257,7 @@ export const DEFAULTS: Prefs = {
   sidebarWidth: 208,
   sidebarTone: 1,
   sidebarCollapsed: [],
+  sidebarDrives: true,
   shortcuts: DEFAULT_SHORTCUTS,
   toolbar: DEFAULT_TOOLBAR,
   toolbarMode: 'icon-text',
@@ -511,6 +514,7 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
       Array.isArray(p.sidebarCollapsed)
         ? p.sidebarCollapsed.filter((x): x is string => typeof x === 'string')
         : [],
+    sidebarDrives: p.sidebarDrives !== false,
     shortcuts,
     toolbar: normalToolbar(p.toolbar),
     toolbarMode:

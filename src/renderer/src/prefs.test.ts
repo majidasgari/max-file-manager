@@ -196,3 +196,9 @@ test('ignore list: defaults hide metadata files and junk entries are dropped', (
     ['.directory']
   )
 })
+
+test('removable devices: shown by default, can be turned off', () => {
+  assert.equal(mergePrefs({}).sidebarDrives, true)
+  assert.equal(mergePrefs({ sidebarDrives: false }).sidebarDrives, false)
+  assert.equal(mergePrefs({ sidebarDrives: 'no' as never }).sidebarDrives, true)
+})
