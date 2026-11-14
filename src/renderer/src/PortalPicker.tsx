@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Entry, type PortalRequestData } from './api'
 import { matchesPortalFilter } from '../../shared/portal-filters.ts'
-import { crumbs, baseName, fa, fmtDate, fmtSize, joinPath, sortEntries } from './format'
+import { cleanMarkNames, crumbs, baseName, fa, fmtDate, fmtSize, joinPath, sortEntries } from './format'
 import { ArrowUpIcon, ChevronDownIcon, ChevronLeftIcon, ConfirmIcon, EntryIcon, EyeIcon, EyeOffIcon, FolderIcon, HomeIcon, RefreshIcon, StarIcon } from './Icons'
 import { mergePrefs, migrateLegacy, type Prefs } from './prefs'
 import { t } from './i18n'
@@ -31,6 +31,7 @@ export function PortalPicker() {
   const [viewport, setViewport] = useState(400)
   const [overwrite, setOverwrite] = useState<string | null>(null)
   const [marks, setMarks] = useState<string[]>([])
+  const [markNames, setMarkNames] = useState<Record<string, string>>({})
   const [markLooks, setMarkLooks] = useState<Record<string, { color?: string; icon?: string }>>({})
   const [iconSet, setIconSet] = useState<Record<string, string>>({})
   const [marksOpen, setMarksOpen] = useState(true)
@@ -50,6 +51,7 @@ export function PortalPicker() {
       setIconSet(icons ?? {})
       // the same list the file manager's sidebar shows: bookmarks live in the shared state
       setMarks(Array.isArray(state?.marks) ? state.marks.filter((m): m is string => typeof m === 'string' && m.startsWith('/')) : [])
+      setMarkNames(cleanMarkNames(state?.markNames))
       setRequest(req)
       setFileName(req?.currentName ?? '')
       setDir(req?.currentFolder || merged.pickerLastDir || homeDir)
@@ -338,7 +340,7 @@ export function PortalPicker() {
                   size={15}
                   iconSet={iconSet}
                   entry={{
-                    name: baseName(m),
+                    name: markNames[m] || baseName(m),
                     path: m,
                     dir: true,
                     size: 0,
@@ -348,7 +350,7 @@ export function PortalPicker() {
                     icon: markLooks[m]?.icon
                   }}
                 />
-                <span dir="auto">{baseName(m)}</span>
+                <span dir="auto">{markNames[m] || baseName(m)}</span>
               </button>
             ))}
           </>}

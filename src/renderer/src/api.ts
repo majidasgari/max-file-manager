@@ -195,6 +195,8 @@ export type StoredState = {
   sort?: { key: string; asc: boolean }
   view?: 'list' | 'grid'
   marks?: string[]
+  /** custom bookmark titles, keyed by folder path */
+  markNames?: Record<string, string>
   chrome?: { customTitlebar: boolean; rounded: boolean }
   prefs?: Record<string, unknown>
   ui?: {

@@ -59,6 +59,12 @@ type Props = {
   onPickLabel(id: string): void
   roots: DirRef[]
   marks: string[]
+  /** custom bookmark titles (path → title); empty means «use the folder name» */
+  markNames?: Record<string, string>
+  onRenameMark?(path: string, title: string | null): void
+  /** the app asks the row to open its inline editor (context-menu «Rename») */
+  renameRequest?: { path: string; tick: number } | null
+  onMarkMenu?(path: string, x: number, y: number): void
   /** each bookmark's own folder colour/icon, resolved once by the app */
   markIcons: Record<string, { color?: string; icon?: string }>
   iconSet?: Record<string, string>
@@ -88,6 +94,10 @@ export function Sidebar({
   onPickLabel,
   roots,
   marks,
+  markNames,
+  onRenameMark,
+  renameRequest,
+  onMarkMenu,
   markIcons,
   iconSet,
   activePath,
@@ -108,6 +118,26 @@ export function Sidebar({
   onReorderMarks
 }: Props) {
   const [dragMarkIdx, setDragMarkIdx] = useState<number | null>(null)
+  /** path of the bookmark whose title is being edited inline */
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const renameInput = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (renameRequest?.path) {
+      setRenaming(renameRequest.path)
+      setRenameDraft(markNames?.[renameRequest.path] ?? '')
+    }
+    // only a new request (tick) re-opens the editor
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renameRequest?.tick])
+  useEffect(() => {
+    if (renaming) renameInput.current?.select()
+  }, [renaming])
+  const commitRename = (path: string, value: string) => {
+    const name = value.trim()
+    onRenameMark?.(path, name ? name : null)
+    setRenaming(null)
+  }
   const [dropMarkTarget, setDropMarkTarget] = useState<{ idx: number; place: 'before' | 'after' } | null>(null)
   /** Expanded tree nodes in «Places», and the sub-folders already read for them (lazy). */
   const [treeOpen, setTreeOpen] = useState<Set<string>>(() => new Set())
@@ -476,9 +506,26 @@ export function Sidebar({
                 setDragMarkIdx(null)
                 setDropMarkTarget(null)
               }}
+              onContextMenu={(ev) => {
+                if (!onMarkMenu) return
+                ev.preventDefault()
+                ev.stopPropagation()
+                onMarkMenu(m, ev.clientX, ev.clientY)
+              }}
             >
               <span className="twisty" />
-              <button className="tree-name" dir="auto" title={m} onClick={() => onNav(m)}>
+              <button
+                className="tree-name"
+                dir="auto"
+                title={(markNames?.[m] ? `${markNames[m]} — ${m}` : m) + ' · ' + t('دوبار کلیک: تغییر نام')}
+                onClick={() => onNav(m)}
+                onDoubleClick={(ev) => {
+                  ev.preventDefault()
+                  ev.stopPropagation()
+                  setRenaming(m)
+                  setRenameDraft(markNames?.[m] ?? '')
+                }}
+              >
                 <EntryIcon
                   size={14}
                   iconSet={iconSet}
@@ -493,7 +540,29 @@ export function Sidebar({
                     icon: markIcons[m]?.icon
                   }}
                 />
-                <span>{baseName(m)}</span>
+                {renaming === m ? (
+                  <input
+                    ref={renameInput}
+                    className="mark-rename"
+                    dir="auto"
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={() => commitRename(m, renameDraft)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        commitRename(m, renameDraft)
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setRenaming(null)
+                      }
+                    }}
+                  />
+                ) : (
+                  <span>{markNames?.[m] || baseName(m)}</span>
+                )}
               </button>
               <button
                 className="x"

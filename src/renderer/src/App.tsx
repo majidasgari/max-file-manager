@@ -52,6 +52,7 @@ import {
   fmtDate,
   fmtSize,
   modeString,
+  cleanMarkNames,
   isArchiveName,
   isIgnoredName,
   isImage,
@@ -257,6 +258,10 @@ export default function App() {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULTS)
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: 'name', asc: true })
   const [marks, setMarks] = useState<string[]>([])
+  /** custom bookmark titles (path → title), display-only */
+  const [markNames, setMarkNames] = useState<Record<string, string>>({})
+  const [markRowMenu, setMarkRowMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+  const [markRename, setMarkRename] = useState<{ path: string; tick: number } | null>(null)
   /** bookmark path → folder colour/icon, so the sidebar shows the folder's own glyph */
   const [markIcons, setMarkIcons] = useState<Record<string, { color?: string; icon?: string }>>({})
   /** folder path → own colour/icon for the tab strip */
@@ -570,6 +575,7 @@ export default function App() {
         setSort({ key: s.sort.key as SortKey, asc: !!s.sort.asc })
       }
       if (Array.isArray(s.marks)) setMarks(s.marks.filter((m: unknown) => typeof m === 'string' && m))
+      setMarkNames(cleanMarkNames(s.markNames))
       if (s.active === 1) setActive(1)
       const mk = (p?: {
         tabs?: string[]
@@ -715,12 +721,13 @@ export default function App() {
         active,
         sort,
         marks,
+        markNames,
         prefs,
         chrome: { customTitlebar: prefs.titlebar === 'app', rounded: prefs.rounded }
       })
     }, 500)
     return () => clearTimeout(t)
-  }, [booted, panes, active, sort, marks, prefs])
+  }, [booted, panes, active, sort, marks, markNames, prefs])
 
   const path0 = panes ? tabOf(panes[0]) : ''
   const path1 = panes ? tabOf(panes[1]) : ''
@@ -1498,6 +1505,17 @@ export default function App() {
     return picked?.path ?? tabOf(me)
   }
 
+  const markLabel = (path: string): string => markNames[path] || baseName(path)
+  /** An empty title clears the custom name and falls back to the folder's own name. */
+  const renameMark = (path: string, title: string | null): void => {
+    setMarkNames((names) => {
+      const next = { ...names }
+      const clean = title?.trim().slice(0, 80) ?? ''
+      if (clean) next[path] = clean
+      else delete next[path]
+      return next
+    })
+  }
   const toggleMark = (i: number, path?: string) => {
     const target = path ?? bookmarkTarget(i)
     if (!target) return
@@ -2329,7 +2347,7 @@ export default function App() {
   const markItems = (): MenuItem[] => {
     const rows: MenuItem[] = marks.map((m) => ({
       id: 'mark:' + m,
-      label: baseName(m),
+      label: markLabel(m),
       // the folder's own colour/icon, exactly like the sidebar's bookmark rows
       icon: (
         <EntryIcon
@@ -3117,7 +3135,15 @@ export default function App() {
       case 'bookmark': {
         const path = str(a.path) || bookmarkTarget(pane)
         if (!path) break
-        if (a.action === 'remove') setMarks((x) => x.filter((y) => y !== path))
+        if (a.action === 'remove') {
+          setMarks((x) => x.filter((y) => y !== path))
+          setMarkNames((names) => {
+            if (!(path in names)) return names
+            const next = { ...names }
+            delete next[path]
+            return next
+          })
+        }
         else if (a.action === 'add') setMarks((x) => (x.includes(path) ? x : [...x, path]))
         else setMarks((x) => (x.includes(path) ? x.filter((y) => y !== path) : [...x, path]))
         break
@@ -3167,7 +3193,7 @@ export default function App() {
         return
       }
       // a modal owns the keyboard: deleting behind the properties sheet would be invisible
-      if (editor || gallery || menu || columnMenu || marksMenu || sortMenu || settingsOpen || openWith || propsFor || breakdownFor || confirmAsk) return
+      if (editor || gallery || menu || columnMenu || marksMenu || markRowMenu || sortMenu || settingsOpen || openWith || propsFor || breakdownFor || confirmAsk) return
       const me = panes[active]
 
       if (ev.altKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
@@ -3504,6 +3530,10 @@ export default function App() {
               onPickLabel={(id) => setPanes((p) => p && patch(p, active, { filter: '#' + id }))}
               roots={roots}
               marks={marks}
+              markNames={markNames}
+              onRenameMark={renameMark}
+              renameRequest={markRename}
+              onMarkMenu={(path, x, y) => setMarkRowMenu({ path, x, y })}
               markIcons={markIcons}
               iconSet={iconSetFor()}
               activePath={curPath}
@@ -3511,7 +3541,15 @@ export default function App() {
               floating={false}
               onToggleFloat={() => updatePrefs({ sidebar: 'float' })}
               onNav={(d) => go(active, d)}
-              onUnmark={(m) => setMarks((x) => x.filter((y) => y !== m))}
+              onUnmark={(m) => {
+                setMarks((x) => x.filter((y) => y !== m))
+                setMarkNames((names) => {
+                  if (!(m in names)) return names
+                  const next = { ...names }
+                  delete next[m]
+                  return next
+                })
+              }}
               onMarkDrop={addMarks}
               onReorderMarks={handleReorderMarks}
               drives={drives}
@@ -3799,6 +3837,10 @@ export default function App() {
                 onPickLabel={(id) => setPanes((p) => p && patch(p, active, { filter: '#' + id }))}
                 roots={roots}
                 marks={marks}
+                markNames={markNames}
+                onRenameMark={renameMark}
+                renameRequest={markRename}
+                onMarkMenu={(path, x, y) => setMarkRowMenu({ path, x, y })}
                 markIcons={markIcons}
                 iconSet={iconSetFor()}
                 activePath={curPath}
@@ -3809,7 +3851,15 @@ export default function App() {
                   go(active, d)
                   setUi((u) => ({ ...u, sidebarOpen: false }))
                 }}
-                onUnmark={(m) => setMarks((x) => x.filter((y) => y !== m))}
+                onUnmark={(m) => {
+                setMarks((x) => x.filter((y) => y !== m))
+                setMarkNames((names) => {
+                  if (!(m in names)) return names
+                  const next = { ...names }
+                  delete next[m]
+                  return next
+                })
+              }}
                 onMarkDrop={addMarks}
                 onReorderMarks={handleReorderMarks}
                 drives={drives}
@@ -4235,6 +4285,30 @@ export default function App() {
             if (id.startsWith('mark:')) go(target, id.slice(5))
           }}
           onClose={() => setMarksMenu(null)}
+        />
+      )}
+
+      {markRowMenu && (
+        <ContextMenu
+          x={markRowMenu.x}
+          y={markRowMenu.y}
+          items={[
+            { id: 'markOpen', label: t('باز کردن'), icon: <FolderIcon /> },
+            { id: 'markRename', label: t('تغییر نام نشان…'), icon: <RenameIcon /> },
+            { sep: true },
+            { id: 'markRemove', label: t('حذف نشان'), icon: <TrashIcon /> }
+          ]}
+          onPick={(id) => {
+            const path = markRowMenu.path
+            setMarkRowMenu(null)
+            if (id === 'markOpen') go(active, path)
+            else if (id === 'markRename') setMarkRename({ path, tick: Date.now() })
+            else if (id === 'markRemove') {
+              setMarks((x) => x.filter((y) => y !== path))
+              renameMark(path, null)
+            }
+          }}
+          onClose={() => setMarkRowMenu(null)}
         />
       )}
 

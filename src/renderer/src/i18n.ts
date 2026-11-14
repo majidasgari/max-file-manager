@@ -522,6 +522,8 @@ const EN: Record<string, string> = {
   'نشان‌ها': 'Bookmarks',
   'هنوز نشانی نداری — با ستاره یا کشیدن پوشه روی سایدبار بساز': 'No bookmarks yet — use the star or drag a folder onto the sidebar',
   'حذف نشان': 'Remove bookmark',
+  'تغییر نام نشان…': 'Rename bookmark…',
+  'دوبار کلیک: تغییر نام': 'double-click to rename',
   'برچسب‌ها': 'Labels',
   'باز/بسته': 'Expand',
   'انجام شد': 'done',

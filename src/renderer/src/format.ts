@@ -591,3 +591,20 @@ export function isIgnoredName(name: string, patterns: string[]): boolean {
   }
   return false
 }
+
+/**
+ * Custom bookmark titles, keyed by the folder path. They are display names only — the bookmark
+ * itself stays a path, so renaming one never touches the disk.
+ */
+export function cleanMarkNames(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'string') continue
+    const name = value.trim().slice(0, 80)
+    if (!key || !name || key.length > 4096) continue
+    out[key] = name
+    if (Object.keys(out).length >= 500) break
+  }
+  return out
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
 import test from 'node:test'
-import {thumbUrl, baseName, crumbs, dirOf, groupEntries, isIgnoredName, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
+import {thumbUrl, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isIgnoredName, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
 
 type Entry = {
   name: string
@@ -503,4 +503,13 @@ test('isIgnoredName matches exact names case-insensitively and honours wildcards
   assert.equal(isIgnoredName('ab.tmp', ['?.tmp']), false)
   assert.equal(isIgnoredName('anything', []), false)
   assert.equal(isIgnoredName('', ['*']), false)
+})
+
+test('cleanMarkNames keeps trimmed titles and drops junk', () => {
+  assert.deepEqual(
+    cleanMarkNames({ '/home/me/Docs': '  Work papers  ', '/tmp': '', bad: 42 }),
+    { '/home/me/Docs': 'Work papers' }
+  )
+  assert.deepEqual(cleanMarkNames(null), {})
+  assert.equal(cleanMarkNames({ '/x': 'a'.repeat(200) })['/x'].length, 80)
 })
