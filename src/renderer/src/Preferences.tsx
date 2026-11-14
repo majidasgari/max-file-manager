@@ -1,7 +1,17 @@
 import { t } from './i18n.ts'
 import { useEffect, useState } from 'react'
 import { api, type SearchProgress } from './api'
-import { COLUMNS, DEFAULT_TOOLBAR, cleanFontFamily, fontStack, mergePrefs, type ColId, type CustomCommand, type Prefs } from './prefs'
+import {
+  COLUMNS,
+  DEFAULT_IGNORE_FILES,
+  DEFAULT_TOOLBAR,
+  cleanFontFamily,
+  fontStack,
+  mergePrefs,
+  type ColId,
+  type CustomCommand,
+  type Prefs
+} from './prefs'
 import { fa } from './format'
 import { XIcon } from './Icons'
 import { AgentsPage } from './AgentsPage'
@@ -479,6 +489,49 @@ export function Preferences({ prefs, palette, openPage, searchRoots, onChange, o
                     { v: 'line', label: t('خطی') }
                   ],
                   'fileIcons'
+                )
+              )}
+              {row(
+                t('نادیده‌گرفتن فایل‌ها'),
+                t('نام فایل‌هایی که هیچ‌جا نشان داده نشوند، با کاما جدا کن؛ * و ? مجاز است'),
+                <div className="pref-control">
+                  <input
+                    className="pref-input wide"
+                    dir="ltr"
+                    value={prefs.ignoreFiles.join(', ')}
+                    placeholder=".directory, desktop.ini"
+                    onChange={(e) =>
+                      onChange({
+                        ignoreFiles: e.target.value
+                          .split(',')
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                      })
+                    }
+                  />
+                  <button
+                    className="btn ghost mini"
+                    title={t('بازگرداندن فهرست پیش‌فرض')}
+                    onClick={() => onChange({ ignoreFiles: [...DEFAULT_IGNORE_FILES] })}
+                  >
+                    {t('پیش‌فرض')}
+                  </button>
+                </div>
+              )}
+              {row(
+                t('گروه‌بندی پیش‌فرض'),
+                t('فهرست پوشه‌هایی که قالب خودشان را ندارند با این کلید گروه‌بندی می‌شود'),
+                seg(
+                  prefs.groupBy,
+                  [
+                    { v: 'none', label: t('بدون گروه‌بندی') },
+                    { v: 'name', label: t('نام') },
+                    { v: 'type', label: t('نوع') },
+                    { v: 'size', label: t('اندازه') },
+                    { v: 'date', label: t('تاریخ') },
+                    { v: 'ext', label: t('پسوند') }
+                  ],
+                  'groupBy'
                 )
               )}
               {row(

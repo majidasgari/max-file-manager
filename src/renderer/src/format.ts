@@ -467,3 +467,127 @@ export function matchCustomCommand(cmd: { pattern: string }, targetPath: string,
   return rawPatterns.some((p) => p === ext || p === '*' || p === 'all' || p === 'file')
 }
 
+export type GroupKey = 'none' | 'name' | 'type' | 'size' | 'date' | 'ext'
+export type EntryGroup = { key: string; label: string; entries: Entry[] }
+
+const NAME_GROUPS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+/** Dolphin-style grouping: «A»…«Z» and a bucket for digits/symbols. */
+function nameGroupOf(name: string): string {
+  const first = [...name.trim()][0]?.toUpperCase() ?? ''
+  return NAME_GROUPS.includes(first) ? first : '#'
+}
+
+function sizeGroupOf(bytes: number): string {
+  const mb = bytes / (1024 * 1024)
+  if (mb < 1) return 'lt1'
+  if (mb < 10) return 'lt10'
+  if (mb < 100) return 'lt100'
+  if (mb < 1024) return 'lt1024'
+  return 'gte1024'
+}
+
+function dateGroupOf(ms: number, now: number): string {
+  const day = 86_400_000
+  const date = new Date(ms)
+  const today = new Date(now)
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  if (ms >= startOfToday) return 'today'
+  if (ms >= startOfToday - day) return 'yesterday'
+  if (ms >= startOfToday - 7 * day) return 'week'
+  if (date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth()) return 'month'
+  if (date.getFullYear() === today.getFullYear()) return 'year'
+  return 'older'
+}
+
+const SIZE_LABELS: Record<string, string> = {
+  folders: 'پوشه‌ها',
+  lt1: 'کمتر از ۱ مگابایت',
+  lt10: '۱ تا ۱۰ مگابایت',
+  lt100: '۱۰ تا ۱۰۰ مگابایت',
+  lt1024: '۱۰۰ مگابایت تا ۱ گیگابایت',
+  gte1024: 'بیشتر از ۱ گیگابایت'
+}
+const SIZE_ORDER = ['folders', 'lt1', 'lt10', 'lt100', 'lt1024', 'gte1024']
+
+const DATE_LABELS: Record<string, string> = {
+  today: 'امروز',
+  yesterday: 'دیروز',
+  week: '۷ روز گذشته',
+  month: 'این ماه',
+  year: 'امسال',
+  older: 'قدیمی‌تر'
+}
+const DATE_ORDER = ['today', 'yesterday', 'week', 'month', 'year', 'older']
+
+const groupKeyFor = (e: Entry, mode: GroupKey, now: number): string => {
+  if (mode === 'name') return nameGroupOf(e.name)
+  if (mode === 'type') return e.dir ? 'dir' : kindOf(e)
+  if (mode === 'ext') return e.dir ? 'dir' : (e.ext || 'none').toLowerCase()
+  if (mode === 'size') return e.dir ? 'folders' : sizeGroupOf(e.size)
+  if (mode === 'date') return dateGroupOf(e.mtime, now)
+  return ''
+}
+
+export const groupHeading = (key: string, mode: GroupKey): string => {
+  if (mode === 'name') return key
+  if (mode === 'type') return key === 'dir' ? t('پوشه') : kindLabel(key as Kind)
+  if (mode === 'ext') return key === 'dir' ? t('پوشه') : key === 'none' ? t('بدون پسوند') : key.toUpperCase()
+  if (mode === 'size') return t(SIZE_LABELS[key] ?? key)
+  if (mode === 'date') return t(DATE_LABELS[key] ?? key)
+  return key
+}
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/**
+ * Split an already-sorted listing into contiguous groups. Order inside a group is preserved, and
+ * the group order is the one people expect (A…Z, today → older, small → large), not alphabetical.
+ */
+export function groupEntries(entries: Entry[], mode: GroupKey, now = Date.now()): EntryGroup[] {
+  if (mode === 'none') return entries.length ? [{ key: '', label: '', entries }] : []
+  const buckets = new Map<string, Entry[]>()
+  for (const e of entries) {
+    const key = groupKeyFor(e, mode, now)
+    const row = buckets.get(key)
+    if (row) row.push(e)
+    else buckets.set(key, [e])
+  }
+  const keys = [...buckets.keys()]
+  let ordered: string[]
+  if (mode === 'name') ordered = keys.sort((a, b) => (a === '#' ? -1 : b === '#' ? 1 : collator.compare(a, b)))
+  else if (mode === 'size') ordered = SIZE_ORDER.filter((k) => buckets.has(k))
+  else if (mode === 'date') ordered = DATE_ORDER.filter((k) => buckets.has(k))
+  else if (mode === 'type' || mode === 'ext') {
+    // folders are their own group and always come first, exactly like the listing itself
+    ordered = keys.sort((a, b) =>
+      a === 'dir' ? -1 : b === 'dir' ? 1 : collator.compare(groupHeading(a, mode), groupHeading(b, mode))
+    )
+  } else ordered = keys.sort((a, b) => collator.compare(groupHeading(a, mode), groupHeading(b, mode)))
+  return ordered.map((key) => ({ key, label: groupHeading(key, mode), entries: buckets.get(key)! }))
+}
+
+/**
+ * Global «ignore these file names» list (Settings → File display). Dolphin and Explorer leave
+ * metadata files behind — .directory, desktop.ini — that nobody wants to see in a listing.
+ * Patterns are file names, not paths, and `*`/`?` are allowed.
+ */
+export function isIgnoredName(name: string, patterns: string[]): boolean {
+  if (!name || !patterns.length) return false
+  const lower = name.toLowerCase()
+  for (const raw of patterns) {
+    const p = raw.trim().toLowerCase()
+    if (!p) continue
+    if (!/[*?]/.test(p)) {
+      if (lower === p) return true
+      continue
+    }
+    const rx = new RegExp(
+      '^' +
+        p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') +
+        '$'
+    )
+    if (rx.test(lower)) return true
+  }
+  return false
+}

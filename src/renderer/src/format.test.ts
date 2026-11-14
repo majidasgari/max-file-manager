@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
 import test from 'node:test'
-import {thumbUrl, baseName, crumbs, dirOf, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
+import {thumbUrl, baseName, crumbs, dirOf, groupEntries, isIgnoredName, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
 
 type Entry = {
   name: string
@@ -423,4 +423,84 @@ test('thumbUrl carries the file version so a replaced image is not served from c
   assert.notEqual(a, thumbUrl('/p/a.png', 256, '1000-43'))
   // no version (properties dialog and older callers) keeps the plain form
   assert.equal(thumbUrl('/p/a b.png', 96), 'thumb://local/p/a%20b.png?s=96')
+})
+
+const G = (name: string, extra: Partial<Entry> = {}): Entry => ({
+  name,
+  path: '/tmp/' + name,
+  dir: false,
+  size: 0,
+  mtime: 0,
+  ext: (name.includes('.') ? name.split('.').pop()! : '').toLowerCase(),
+  ...extra
+})
+
+test('groupEntries by name: A…Z alphabetical, digits and symbols in «#»', () => {
+  const groups = groupEntries([G('beta.txt'), G('1file'), G('Alpha'), G('_x')], 'name')
+  assert.deepEqual(groups.map((g) => g.label), ['#', 'A', 'B'])
+  assert.deepEqual(groups[0].entries.map((e) => e.name), ['1file', '_x'])
+})
+
+test('groupEntries by type keeps folders first and uses the kind names', () => {
+  const now = Date.now()
+  const groups = groupEntries(
+    [G('a.png'), G('b.txt'), G('dir', { dir: true, ext: '' }), G('c.jpg')],
+    'type',
+    now
+  )
+  assert.equal(groups[0].key, 'dir')
+  const image = groups.find((g) => g.key === 'image')
+  assert.deepEqual(image?.entries.map((e) => e.name), ['a.png', 'c.jpg'])
+  assert.ok(groups.some((g) => g.key === 'text'))
+})
+
+test('groupEntries by date uses today → older buckets in order', () => {
+  const now = new Date(2026, 4, 20, 12, 0, 0).getTime()
+  const day = 86_400_000
+  const groups = groupEntries(
+    [
+      G('today', { mtime: now }),
+      G('yesterday', { mtime: now - day }),
+      G('old', { mtime: now - 400 * day })
+    ],
+    'date',
+    now
+  )
+  assert.deepEqual(groups.map((g) => g.key), ['today', 'yesterday', 'older'])
+})
+
+test('groupEntries by size puts folders aside and walks the size buckets', () => {
+  const groups = groupEntries(
+    [
+      G('small', { size: 1000 }),
+      G('big', { size: 5 * 1024 * 1024 }),
+      G('folder', { dir: true, size: 0 }),
+      G('huge', { size: 2 * 1024 * 1024 * 1024 })
+    ],
+    'size'
+  )
+  assert.deepEqual(groups.map((g) => g.key), ['folders', 'lt1', 'lt10', 'gte1024'])
+})
+
+test('groupEntries by extension upper-cases extensions and keeps folders first', () => {
+  const groups = groupEntries([G('a.PNG'), G('b.txt'), G('f', { dir: true })], 'ext')
+  assert.deepEqual(groups.map((g) => g.label), ['پوشه', 'PNG', 'TXT'])
+})
+
+test('groupEntries: none is one unnamed group and an empty listing has no groups', () => {
+  assert.deepEqual(groupEntries([], 'name'), [])
+  const one = groupEntries([G('a.txt')], 'none')
+  assert.equal(one.length, 1)
+  assert.equal(one[0].label, '')
+})
+
+test('isIgnoredName matches exact names case-insensitively and honours wildcards', () => {
+  assert.equal(isIgnoredName('.directory', ['.directory', 'desktop.ini']), true)
+  assert.equal(isIgnoredName('Desktop.ini', ['.directory', 'desktop.ini']), true)
+  assert.equal(isIgnoredName('notes.txt', ['.directory', 'desktop.ini']), false)
+  assert.equal(isIgnoredName('a.tmp', ['*.tmp']), true)
+  assert.equal(isIgnoredName('a.tmp', ['?.tmp']), true)
+  assert.equal(isIgnoredName('ab.tmp', ['?.tmp']), false)
+  assert.equal(isIgnoredName('anything', []), false)
+  assert.equal(isIgnoredName('', ['*']), false)
 })

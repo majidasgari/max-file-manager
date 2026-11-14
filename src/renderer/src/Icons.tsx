@@ -540,6 +540,12 @@ export const UnlockIcon = ({ size = 13 }: { size?: number }) => (
     <path d="M8 11V8a4 4 0 0 1 7-2.6" />
   </S>
 )
+export const SortIcon = ({ size = 15 }: { size?: number }) => (
+  <S size={size}>
+    <path d="M4 7h11M4 12h8M4 17h5" />
+    <path d="M18 8v9M15.5 14.5L18 17l2.5-2.5" />
+  </S>
+)
 export const LocateIcon = ({ size = 15 }: { size?: number }) => (
   <S size={size}>
     <circle cx="12" cy="12" r="3.2" />

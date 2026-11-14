@@ -143,6 +143,10 @@ export type Prefs = {
   treeAutoFocus: boolean
   /** the gallery's information/edit sidebar is visible when the viewer opens */
   galleryInfo: boolean
+  /** default grouping for folders that have no format of their own */
+  groupBy: 'none' | 'name' | 'type' | 'size' | 'date' | 'ext'
+  /** file names hidden from every listing (glob allowed); metadata files by default */
+  ignoreFiles: string[]
   /** user commands: name → shell line, `{path}` and `{dir}` are substituted */
   scripts: Record<string, string>
   // transfer filters
@@ -183,6 +187,23 @@ export type CustomCommand = {
   label: string
   pattern: string
   command: string
+}
+
+/** Metadata files nobody wants to see; the user can extend or clear the list. */
+export const DEFAULT_IGNORE_FILES = ['.directory', 'desktop.ini']
+
+const cleanIgnoreFiles = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return [...DEFAULT_IGNORE_FILES]
+  const out: string[] = []
+  for (const value of raw) {
+    if (typeof value !== 'string') continue
+    const name = value.trim().slice(0, 80)
+    // a name, not a path: separation is what the folder listing uses anyway
+    if (!name || /[\\/]/.test(name)) continue
+    if (!out.some((x) => x.toLowerCase() === name.toLowerCase())) out.push(name)
+    if (out.length >= 100) break
+  }
+  return out
 }
 
 export const DEFAULT_FONT_FAMILY = "Vazirmatn, system-ui, 'Noto Sans', sans-serif"
@@ -260,6 +281,8 @@ export const DEFAULTS: Prefs = {
   treeWidth: 232,
   treeAutoFocus: true,
   galleryInfo: true,
+  groupBy: 'none',
+  ignoreFiles: DEFAULT_IGNORE_FILES,
   scripts: {},
   transferSkipExisting: false,
   transferNewerOnly: false,
@@ -533,6 +556,12 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
         : 232,
     treeAutoFocus: p.treeAutoFocus !== false,
     galleryInfo: p.galleryInfo !== false,
+    groupBy: (['none', 'name', 'type', 'size', 'date', 'ext'] as const).includes(
+      p.groupBy as 'none'
+    )
+      ? (p.groupBy as Prefs['groupBy'])
+      : 'none',
+    ignoreFiles: cleanIgnoreFiles(p.ignoreFiles),
     scripts: normalScripts(p.scripts),
     transferSkipExisting: p.transferSkipExisting === true,
     transferNewerOnly: p.transferNewerOnly === true,

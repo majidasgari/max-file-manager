@@ -34,6 +34,8 @@ export type FolderFormat = {
   columns?: string[]
   sortKey?: string
   sortAsc?: boolean
+  /** Dolphin-style grouping of this folder's listing */
+  group?: 'none' | 'name' | 'type' | 'size' | 'date' | 'ext'
 }
 
 /** The label palette; ids are stable because they are stored in `.mfm.json`. */
@@ -251,6 +253,7 @@ const cleanFormat = (raw: unknown): FolderFormat | null => {
   if (Array.isArray(f.columns)) out.columns = f.columns.filter((c) => FMT_COLS.has(c))
   if (typeof f.sortKey === 'string' && f.sortKey.length < 20) out.sortKey = f.sortKey
   if (typeof f.sortAsc === 'boolean') out.sortAsc = f.sortAsc
+  if (f.group && ['none', 'name', 'type', 'size', 'date', 'ext'].includes(f.group)) out.group = f.group
   return Object.keys(out).length ? out : null
 }
 

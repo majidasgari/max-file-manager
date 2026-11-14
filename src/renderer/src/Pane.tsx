@@ -1,5 +1,5 @@
 import { t } from './i18n.ts'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Entry, type Listing } from './api'
 import { keepDragPaths } from './drag'
 import { dragLog } from './draglog'
@@ -10,7 +10,9 @@ import {
   fileUri,
   fmtDate,
   fmtSize,
+  groupEntries,
   groupLabel,
+  type GroupKey,
   modeString,
   isImage,
   mediaUrl,
@@ -20,7 +22,7 @@ import {
   type SortKey
 } from './format'
 import { PreviewPanel } from './PreviewPanel'
-import { EntryIcon, EyeOffIcon, FilterIcon, LinkIcon, LockIcon } from './Icons'
+import { EntryIcon, EyeOffIcon, FilterIcon, LinkIcon, LockIcon, SortIcon } from './Icons'
 import {
   ArrowUpIcon,
   ChevronDownIcon,
@@ -48,7 +50,13 @@ export type View = 'list' | 'grid'
 export type Virtual = { kind: 'flat' | 'search' | 'dupes' | 'archive'; label: string }
 
 /** A folder's own view format (Opus «Folder Format»), applied while its pane is there. */
-export type FolderView = { view?: View; columns?: string[]; sortKey?: string; sortAsc?: boolean }
+export type FolderView = {
+  view?: View
+  columns?: string[]
+  sortKey?: string
+  sortAsc?: boolean
+  group?: GroupKey
+}
 
 export type PaneState = {
   tabs: string[]
@@ -85,6 +93,8 @@ type Props = {
   pane: PaneState
   active: boolean
   sort: { key: SortKey; asc: boolean }
+  /** Dolphin-style grouping of the listing */
+  groupBy: GroupKey
   view: View
   foldersFirst: boolean
   columns: ColId[]
@@ -129,6 +139,8 @@ type Props = {
   onOpen(path: string): void
   onSel(paths: string[], mode: 'set' | 'toggle'): void
   onFilter(q: string): void
+  /** sort + grouping menu, anchored at the button (works in both views) */
+  onSortMenu(x: number, y: number): void
   onTabNew(): void
   onTabClose(idx: number): void
   onTabPick(idx: number): void
@@ -338,7 +350,7 @@ export function Pane(props: Props) {
   const labelColor = (name: string) =>
     props.palette.find((l) => l.id === labelMap[name])?.color ?? ''
 
-  const entries = useMemo(
+  const ordered = useMemo(
     () =>
       orderEntries(
         source,
@@ -352,6 +364,10 @@ export function Pane(props: Props) {
       ),
     [source, pane.filter, sort, props.foldersFirst]
   )
+  const groupBy = props.groupBy
+  const groups = useMemo(() => groupEntries(ordered, groupBy), [ordered, groupBy])
+  // the visual order is group by group: click indexes, navigation and grouping all share it
+  const entries = useMemo(() => groups.flatMap((g) => g.entries), [groups])
 
   const cur = pane.tabs[pane.ti]
   // a single tab needs no strip; the + then lives in the path row so a new tab is still one click away
@@ -368,13 +384,26 @@ export function Pane(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cols, rows])
 
-  // windowing: only the visible slice is mounted, so 100k-entry folders stay cheap
-  const start = view === 'list'
-    ? Math.max(0, Math.floor(scrollTop / ROW) - 8)
-    : Math.max(0, Math.floor(scrollTop / TILE_H) - 2) * cols
-  const end = view === 'list'
-    ? Math.min(entries.length, Math.ceil((scrollTop + box.h) / ROW) + 8)
-    : Math.min(entries.length, (Math.ceil((scrollTop + box.h) / TILE_H) + 2) * cols)
+  // windowing: blocks (groups) are laid out first, then only the rows/tiles on screen are mounted
+  const HEADER_H = 26
+  const blocks = useMemo(() => {
+    let top = 0
+    let startIdx = 0
+    const header = groupBy === 'none' ? 0 : HEADER_H
+    return groups.map((g) => {
+      const rows = view === 'list' ? g.entries.length : Math.ceil(g.entries.length / cols)
+      const h = header + rows * (view === 'list' ? ROW : TILE_H)
+      const block = { ...g, startIdx, top, headerH: header, h }
+      startIdx += g.entries.length
+      top += h
+      return block
+    })
+  }, [groups, groupBy, view, cols, TILE_H])
+  const totalHeight = blocks.length ? blocks[blocks.length - 1].top + blocks[blocks.length - 1].h : 0
+  /** blocks below and above the viewport (with a little overscan) are not touched */
+  const visibleBlocks = blocks.filter(
+    (b) => b.top + b.h > scrollTop - ROW * 2 && b.top < scrollTop + box.h + ROW * 2
+  )
 
   // keyboard navigation asks for the focused row to be visible; the windowing above only mounts
   // what is on screen, so this has to work from the index rather than scrollIntoView
@@ -384,7 +413,11 @@ export function Pane(props: Props) {
     if (!el || !t) return
     const idx = entries.findIndex((e) => e.path === t.path)
     if (idx < 0) return
-    const top = view === 'list' ? idx * ROW : Math.floor(idx / cols) * TILE_H
+    const block = blocks.find((b) => idx >= b.startIdx && idx < b.startIdx + b.entries.length)
+    if (!block) return
+    const local = idx - block.startIdx
+    const top =
+      block.top + block.headerH + (view === 'list' ? local * ROW : Math.floor(local / cols) * TILE_H)
     const h = view === 'list' ? ROW : TILE_H
     if (top < el.scrollTop) el.scrollTop = top
     else if (top + h > el.scrollTop + el.clientHeight) el.scrollTop = top + h - el.clientHeight
@@ -740,6 +773,17 @@ export function Pane(props: Props) {
           </button>
         )}
         <button
+          className="tb"
+          title={t(t('مرتب‌سازی و گروه‌بندی'))}
+          aria-haspopup="menu"
+          onClick={(ev) => {
+            const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
+            props.onSortMenu(Math.round(r.right), Math.round(r.bottom + 4))
+          }}
+        >
+          <SortIcon />
+        </button>
+        <button
           className={'tb' + (pane.filter || filterOpen ? ' on' : '')}
           title={t(t('فیلتر نام (Ctrl+F)'))}
           aria-pressed={!!pane.filter || filterOpen}
@@ -925,140 +969,189 @@ export function Pane(props: Props) {
                   : t('پوشه خالی است')}
           </div>
         ) : view === 'list' ? (
-          <div style={{ height: entries.length * ROW, position: 'relative', minWidth }}>
-            {entries.slice(start, end).map((e, k) => (
-              <div
-                key={e.path}
-                data-path={e.path}
-                className={
-                  'row' +
-                  (pane.sel.includes(e.path) ? ' on' : '') +
-                  (pinSet.has(e.name) ? ' pinned' : '') +
-                  (e.hidden ? ' meta-hidden' : '')
-                }
-                style={{ top: (start + k) * ROW, gridTemplateColumns: gridTemplate }}
-                title={e.path}
-                draggable
-                onDragStart={(ev) => startDrag(ev, e.path, e.dir)}
-                onDragOver={allowDrop}
-                onDrop={(ev) => dropOn(ev, e.dir ? e.path : cur)}
-                onContextMenu={(ev) => menu(ev, e.path)}
-                onClick={(ev) => click(start + k, ev)}
-                onDoubleClick={() => props.onOpen(e.path)}
-              >
-                <span className="name">
-                  {!e.dir && props.typeColors[(e.ext || '').toLowerCase()] && (
-                    <span
-                      className="ftdot"
-                      style={{ background: props.typeColors[(e.ext || '').toLowerCase()] }}
-                      title={`${t('نوع')} ${e.ext}`}
-                    />
+          <div style={{ height: totalHeight, position: 'relative', minWidth }}>
+            {visibleBlocks.map((b) => {
+              const headerVisible = b.headerH > 0 && b.top + b.headerH > scrollTop && b.top < scrollTop + box.h
+              const rowsFrom = Math.max(0, Math.floor((scrollTop - (b.top + b.headerH)) / ROW))
+              const rowsTo = Math.min(
+                b.entries.length,
+                Math.ceil((scrollTop + box.h - (b.top + b.headerH)) / ROW)
+              )
+              return (
+                <Fragment key={b.key || 'all'}>
+                  {headerVisible && (
+                    <div className="grp-head" style={{ top: b.top, height: b.headerH }}>
+                      <span dir="auto">{b.label}</span>
+                      <span className="grp-count">{fa(b.entries.length)}</span>
+                    </div>
                   )}
-                  {labelColor(e.name) && (
-                    <span className="lbl" style={{ background: labelColor(e.name) }} title={t(t('برچسب'))} />
-                  )}
-                  {!e.dir && e.color && (
-                    <span className="file-color" style={{ background: e.color }} title={t('رنگ')} />
-                  )}
-                  {pinSet.has(e.name) && (
-                    <span className="pinmark" title={t(t('سنجاق‌شده'))}>
-                      <PinIcon filled />
-                    </span>
-                  )}
-                  {e.hidden && (
-                    <span className="hidmark" title={t('پنهان از فهرست')}>
-                      <EyeOffIcon />
-                    </span>
-                  )}
-                  <EntryIcon entry={e} iconSet={props.iconSet} />
-                  <span dir="auto" className="trunc">{e.name}</span>
-                  {props.showSymlink && e.link && (
-                    <span className="symmark" title={t('پیوند نمادین')}>
-                      <LinkIcon />
-                    </span>
-                  )}
-                </span>
-                {props.columns.map((c) => (
-                  <span key={c} className={COL_META[c].sort === 'mtime' || !COL_META[c].sort ? 'dim' : 'kind'}>
-                    {cell(c, e)}
-                  </span>
-                ))}
-              </div>
-            ))}
+                  {rowsTo > rowsFrom &&
+                    b.entries.slice(rowsFrom, rowsTo).map((e, k) => {
+                      const idx = b.startIdx + rowsFrom + k
+                      return (
+                        <div
+                          key={e.path}
+                          data-path={e.path}
+                          className={
+                            'row' +
+                            (pane.sel.includes(e.path) ? ' on' : '') +
+                            (pinSet.has(e.name) ? ' pinned' : '') +
+                            (e.hidden ? ' meta-hidden' : '')
+                          }
+                          style={{
+                            top: b.top + b.headerH + (rowsFrom + k) * ROW,
+                            gridTemplateColumns: gridTemplate
+                          }}
+                          title={e.path}
+                          draggable
+                          onDragStart={(ev) => startDrag(ev, e.path, e.dir)}
+                          onDragOver={allowDrop}
+                          onDrop={(ev) => dropOn(ev, e.dir ? e.path : cur)}
+                          onContextMenu={(ev) => menu(ev, e.path)}
+                          onClick={(ev) => click(idx, ev)}
+                          onDoubleClick={() => props.onOpen(e.path)}
+                        >
+                          <span className="name">
+                            {!e.dir && props.typeColors[(e.ext || '').toLowerCase()] && (
+                              <span
+                                className="ftdot"
+                                style={{ background: props.typeColors[(e.ext || '').toLowerCase()] }}
+                                title={`${t('نوع')} ${e.ext}`}
+                              />
+                            )}
+                            {labelColor(e.name) && (
+                              <span className="lbl" style={{ background: labelColor(e.name) }} title={t(t('برچسب'))} />
+                            )}
+                            {!e.dir && e.color && (
+                              <span className="file-color" style={{ background: e.color }} title={t('رنگ')} />
+                            )}
+                            {pinSet.has(e.name) && (
+                              <span className="pinmark" title={t(t('سنجاق‌شده'))}>
+                                <PinIcon filled />
+                              </span>
+                            )}
+                            {e.hidden && (
+                              <span className="hidmark" title={t('پنهان از فهرست')}>
+                                <EyeOffIcon />
+                              </span>
+                            )}
+                            <EntryIcon entry={e} iconSet={props.iconSet} />
+                            <span dir="auto" className="trunc">{e.name}</span>
+                            {props.showSymlink && e.link && (
+                              <span className="symmark" title={t('پیوند نمادین')}>
+                                <LinkIcon />
+                              </span>
+                            )}
+                          </span>
+                          {props.columns.map((c) => (
+                            <span key={c} className={COL_META[c].sort === 'mtime' || !COL_META[c].sort ? 'dim' : 'kind'}>
+                              {cell(c, e)}
+                            </span>
+                          ))}
+                        </div>
+                      )
+                    })}
+                </Fragment>
+              )
+            })}
           </div>
         ) : (
-          <div style={{ height: Math.ceil(entries.length / cols) * TILE_H, position: 'relative' }}>
-            {entries.slice(start, end).map((e, k) => {
-              const idx = start + k
-              const r = Math.floor(idx / cols)
-              const c = idx % cols
-              // a real picture fills the tile; anything else is an icon and gets no box behind it
-              const pic = !e.dir && isImage(e.ext) && e.size < 8_000_000
-              const metaParts = props.gridMeta.map((c) => cell(c, e)).filter(Boolean)
+          <div style={{ height: totalHeight, position: 'relative' }}>
+            {visibleBlocks.map((b) => {
+              const headerVisible = b.headerH > 0 && b.top + b.headerH > scrollTop && b.top < scrollTop + box.h
+              const rowFrom = Math.max(0, Math.floor((scrollTop - (b.top + b.headerH)) / TILE_H))
+              const rowTo = Math.min(
+                Math.ceil(b.entries.length / cols),
+                Math.ceil((scrollTop + box.h - (b.top + b.headerH)) / TILE_H)
+              )
               return (
-                <div
-                  key={e.path}
-                  data-path={e.path}
-                  className={
-                    'tile' + (pane.sel.includes(e.path) ? ' on' : '') + (e.hidden ? ' meta-hidden' : '')
-                  }
-                  style={{ top: r * TILE_H, insetInlineStart: c * TILE_W, width: TILE_W - 6, height: TILE_H - 6 }}
-                  draggable
-                  onDragStart={(ev) => startDrag(ev, e.path, e.dir)}
-                  onDragOver={allowDrop}
-                  onDrop={(ev) => dropOn(ev, e.dir ? e.path : cur)}
-                  onContextMenu={(ev) => menu(ev, e.path)}
-                  onClick={(ev) => click(idx, ev)}
-                  onDoubleClick={() => props.onOpen(e.path)}
-                  title={e.path}
-                >
-                  <span
-                    className={'thumb' + (pic ? ' pic' : ' flat')}
-                    style={{ width: TILE.thumb, height: TILE.thumb }}
-                  >
-                    {pic ? (
-                      <img
-                        src={isImageName(e.name) ? thumbUrl(e.path, 256, `${Math.round(e.mtime)}-${e.size}`) : mediaUrl(e.path)}
-                        alt=""
-                        loading="lazy"
-                        draggable={false}
-                      />
-                    ) : (
-                      <EntryIcon entry={e} size={TILE.glyph} iconSet={props.iconSet} />
-                    )}
-                    {labelColor(e.name) && (
-                      <span
-                        className="lbl tile-lbl"
-                        style={{ background: labelColor(e.name) }}
-                        title={t(t('برچسب'))}
-                      />
-                    )}
-                  </span>
-                  <span className="tile-name-row">
-                    {!e.dir && e.color && (
-                      <span className="file-color" style={{ background: e.color }} title={t('رنگ')} />
-                    )}
-                    <span
-                      className="tile-name"
-                      dir="auto"
-                      style={{ WebkitLineClamp: props.nameLines, fontSize: TILE.font }}
-                    >{e.name}</span>
-                    {props.showSymlink && e.link && (
-                      <span className="symmark tile-link" title={t('پیوند نمادین')}>
-                        <LinkIcon />
-                      </span>
-                    )}
-                  </span>
-                  {metaParts.length > 0 && (
-                    <span className="tile-meta" dir="auto">
-                      {metaParts.map((part, mi) => (
-                        <span className="tile-meta-line" key={mi}>
-                          {part}
-                        </span>
-                      ))}
-                    </span>
+                <Fragment key={b.key || 'all'}>
+                  {headerVisible && (
+                    <div className="grp-head" style={{ top: b.top, height: b.headerH }}>
+                      <span dir="auto">{b.label}</span>
+                      <span className="grp-count">{fa(b.entries.length)}</span>
+                    </div>
                   )}
-                </div>
+                  {rowTo > rowFrom &&
+                    b.entries.slice(rowFrom * cols, rowTo * cols).map((e, k) => {
+                      const local = rowFrom * cols + k
+                      const idx = b.startIdx + local
+                      const r = Math.floor(local / cols)
+                      const c = local % cols
+                      const pic = !e.dir && isImage(e.ext) && e.size < 8_000_000
+                      const metaParts = props.gridMeta.map((col) => cell(col, e)).filter(Boolean)
+                      return (
+                        <div
+                          key={e.path}
+                          data-path={e.path}
+                          className={
+                            'tile' + (pane.sel.includes(e.path) ? ' on' : '') + (e.hidden ? ' meta-hidden' : '')
+                          }
+                          style={{
+                            top: b.top + b.headerH + r * TILE_H,
+                            insetInlineStart: c * TILE_W,
+                            width: TILE_W - 6,
+                            height: TILE_H - 6
+                          }}
+                          draggable
+                          onDragStart={(ev) => startDrag(ev, e.path, e.dir)}
+                          onDragOver={allowDrop}
+                          onDrop={(ev) => dropOn(ev, e.dir ? e.path : cur)}
+                          onContextMenu={(ev) => menu(ev, e.path)}
+                          onClick={(ev) => click(idx, ev)}
+                          onDoubleClick={() => props.onOpen(e.path)}
+                          title={e.path}
+                        >
+                          <span
+                            className={'thumb' + (pic ? ' pic' : ' flat')}
+                            style={{ width: TILE.thumb, height: TILE.thumb }}
+                          >
+                            {pic ? (
+                              <img
+                                src={isImageName(e.name) ? thumbUrl(e.path, 256, `${Math.round(e.mtime)}-${e.size}`) : mediaUrl(e.path)}
+                                alt=""
+                                loading="lazy"
+                                draggable={false}
+                              />
+                            ) : (
+                              <EntryIcon entry={e} size={TILE.glyph} iconSet={props.iconSet} />
+                            )}
+                            {labelColor(e.name) && (
+                              <span
+                                className="lbl tile-lbl"
+                                style={{ background: labelColor(e.name) }}
+                                title={t(t('برچسب'))}
+                              />
+                            )}
+                          </span>
+                          <span className="tile-name-row">
+                            {!e.dir && e.color && (
+                              <span className="file-color" style={{ background: e.color }} title={t('رنگ')} />
+                            )}
+                            <span
+                              className="tile-name"
+                              dir="auto"
+                              style={{ WebkitLineClamp: props.nameLines, fontSize: TILE.font }}
+                            >{e.name}</span>
+                            {props.showSymlink && e.link && (
+                              <span className="symmark tile-link" title={t('پیوند نمادین')}>
+                                <LinkIcon />
+                              </span>
+                            )}
+                          </span>
+                          {metaParts.length > 0 && (
+                            <span className="tile-meta" dir="auto">
+                              {metaParts.map((part, mi) => (
+                                <span className="tile-meta-line" key={mi}>
+                                  {part}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                </Fragment>
               )
             })}
           </div>

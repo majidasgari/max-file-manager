@@ -127,7 +127,13 @@ export type Listing = {
   labels?: Record<string, string>
   ratings?: Record<string, number>
   notes?: Record<string, string>
-  format?: { view?: string; columns?: string[]; sortKey?: string; sortAsc?: boolean } | null
+  format?: {
+    view?: string
+    columns?: string[]
+    sortKey?: string
+    sortAsc?: boolean
+    group?: 'none' | 'name' | 'type' | 'size' | 'date' | 'ext'
+  } | null
 }
 export type DirRef = { name: string; path: string; /** the entry itself is a symbolic link */ link?: boolean }
 export type Drive = {
@@ -209,7 +215,13 @@ export type FolderMeta = {
   labels?: Record<string, string>
   ratings?: Record<string, number>
   notes?: Record<string, string>
-  format?: { view?: string; columns?: string[]; sortKey?: string; sortAsc?: boolean } | null
+  format?: {
+    view?: string
+    columns?: string[]
+    sortKey?: string
+    sortAsc?: boolean
+    group?: 'none' | 'name' | 'type' | 'size' | 'date' | 'ext'
+  } | null
 }
 export type PreviewKind = 'dir' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'office' | 'binary'
 export type Preview = {

@@ -184,3 +184,15 @@ test('gallery info sidebar: on by default and a chosen state survives', () => {
   assert.equal(mergePrefs({ galleryInfo: false }).galleryInfo, false)
   assert.equal(mergePrefs({ galleryInfo: 'nonsense' as never }).galleryInfo, true)
 })
+
+test('ignore list: defaults hide metadata files and junk entries are dropped', () => {
+  assert.deepEqual(mergePrefs({}).ignoreFiles, ['.directory', 'desktop.ini'])
+  assert.deepEqual(mergePrefs({ ignoreFiles: ['  .DS_Store ', '', 'x/y', 42 as never] }).ignoreFiles, [
+    '.DS_Store'
+  ])
+  assert.deepEqual(mergePrefs({ ignoreFiles: [] }).ignoreFiles, [])
+  assert.deepEqual(
+    mergePrefs({ ignoreFiles: ['.directory', '.DIRECTORY'] }).ignoreFiles,
+    ['.directory']
+  )
+})

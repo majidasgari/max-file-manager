@@ -5224,3 +5224,26 @@ button.bd-row:hover {
 .ed-draft .btn.mini {
   padding: 3px 9px;
 }
+
+/* ---------- grouped listings (list and thumbnail views) ---------- */
+.grp-head {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.grp-count {
+  color: var(--dim);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}

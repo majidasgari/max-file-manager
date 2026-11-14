@@ -53,6 +53,7 @@ import {
   fmtSize,
   modeString,
   isArchiveName,
+  isIgnoredName,
   isImage,
   joinPath,
   matchCustomCommand,
@@ -65,6 +66,7 @@ import {
   reorderItem,
   terminalDir,
   typeLabel,
+  type GroupKey,
   type NavMove,
   type SortKey
 } from './format'
@@ -412,6 +414,65 @@ export default function App() {
   const hidden = prefs.showHidden
   const setHidden = (f: boolean | ((h: boolean) => boolean)) =>
     updatePrefs({ showHidden: typeof f === 'function' ? f(prefs.showHidden) : f })
+  const [sortMenu, setSortMenu] = useState<{ x: number; y: number } | null>(null)
+  /** grouping is a per-folder format field (`.mfm.json`), with prefs.groupBy as the default */
+  const setGroupFor = (i: number, group: GroupKey) => {
+    const pane = panes?.[i]
+    if (!pane) return
+    const fmt: FolderView = { ...(pane.fmt ?? {}), group }
+    setPanes((p) => p && patch(p, i, { fmt }))
+    updatePrefs({ groupBy: group })
+    if (!pane.virtual && !pane.archive) void api.setFormat(tabOf(pane), fmt).catch(() => undefined)
+  }
+  const sortMenuItems = (): MenuItem[] => {
+    const cur = sortOf(active)
+    const grp: GroupKey = (panes?.[active]?.fmt?.group ?? prefs.groupBy) as GroupKey
+    const keys: [SortKey, string][] = [
+      ['name', t('نام')],
+      ['size', t('اندازه')],
+      ['ext', t('نوع')],
+      ['mtime', t('تاریخ')],
+      ['mode', t('مجوز')],
+      ['owner', t('مالک')],
+      ['links', t('لینک')],
+      ['dims', t('ابعاد')],
+      ['rating', t('امتیاز')]
+    ]
+    const groups: [GroupKey, string][] = [
+      ['none', t('بدون گروه‌بندی')],
+      ['name', t('نام')],
+      ['type', t('نوع')],
+      ['size', t('اندازه')],
+      ['date', t('تاریخ')],
+      ['ext', t('پسوند')]
+    ]
+    return [
+      { head: true, label: t('مرتب‌سازی بر اساس') },
+      ...keys.map(([key, label]) => ({ id: `sort:${key}`, label, checked: cur.key === key })),
+      { sep: true },
+      { id: 'sort:asc', label: t('صعودی (الف → ی)'), checked: cur.asc },
+      { id: 'sort:desc', label: t('نزولی (ی → الف)'), checked: !cur.asc },
+      { sep: true },
+      { head: true, label: t('گروه‌بندی بر اساس') },
+      ...groups.map(([key, label]) => ({ id: `grp:${key}`, label, checked: grp === key }))
+    ]
+  }
+  const pickSort = (id: string): void => {
+    setSortMenu(null)
+    const cur = sortOf(active)
+    if (id.startsWith('sort:')) {
+      const key = id.slice(5)
+      if (key === 'asc') setSortFor(active, { key: cur.key, asc: true })
+      else if (key === 'desc') setSortFor(active, { key: cur.key, asc: false })
+      else {
+        const k = key as SortKey
+        setSortFor(active, { key: k, asc: cur.key === k ? !cur.asc : true })
+      }
+      return
+    }
+    if (id.startsWith('grp:')) setGroupFor(active, id.slice(4) as GroupKey)
+  }
+
   const setSortFor = (i: number, next: { key: SortKey; asc: boolean }) => {
     setSort(next)
     const pane = panes?.[i]
@@ -920,7 +981,8 @@ export default function App() {
       const listing = await api.list(dir, hidden, prefs.columns.includes('dims'))
       if (loadSeq.current[i] !== seq) return
       const fmt = (listing.format as FolderView | null) ?? null
-      setPanes((p) => p && patch(p, i, { listing, fmt, error: '', loading: false }))
+      const entries = listing.entries.filter((e) => !isIgnoredName(e.name, prefs.ignoreFiles))
+      setPanes((p) => p && patch(p, i, { listing: { ...listing, entries }, fmt, error: '', loading: false }))
     } catch (e: any) {
       if (loadSeq.current[i] !== seq) return
       setPanes((p) => p && patch(p, i, { listing: null, error: String(e?.message ?? e), loading: false }))
@@ -955,7 +1017,7 @@ export default function App() {
     if (!roots.length) return
     void api.search.stats().then((st) => {
       if (Date.now() - st.lastIndex < 3_600_000) return
-      void api.search.index({ roots, exclude: prefs.searchExclude })
+      void api.search.index({ roots, exclude: [...prefs.searchExclude, ...prefs.ignoreFiles] })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booted])
@@ -1484,7 +1546,8 @@ export default function App() {
     if (!panes) return
     setPanes((p) => p && patch(p, i, { loading: true }))
     const r = await api.walk(tabOf(panes[i]), { limit: 5000 })
-    setVirtual(i, 'flat', `نمای تخت · ${fa(r.entries.length)}${r.capped ? '+' : ''}`, r.entries)
+    const entries = r.entries.filter((e) => !isIgnoredName(e.name, prefs.ignoreFiles))
+    setVirtual(i, 'flat', `نمای تخت · ${fa(entries.length)}${r.capped ? '+' : ''}`, entries)
   }
 
   const runSearch = async (i: number, q: SearchQuery) => {
@@ -1501,11 +1564,12 @@ export default function App() {
         exclude: prefs.showHidden ? prefs.searchExclude : [...prefs.searchExclude, '.*'],
         budgetMs: 2500
       })
-      setVirtual(i, 'search', `جست‌وجو · ${fa(r.entries.length)}${r.capped ? '+' : ''}`, r.entries)
+      const found = r.entries.filter((e) => !isIgnoredName(e.name, prefs.ignoreFiles))
+      setVirtual(i, 'search', `جست‌وجو · ${fa(found.length)}${r.capped ? '+' : ''}`, found)
       setNote(
         r.capped
           ? t('جست‌وجو به سقف زمان رسید؛ نتیجه‌های نزدیک‌تر اول آمده‌اند')
-          : t('{n} نتیجه', { n: fa(r.entries.length) })
+          : t('{n} نتیجه', { n: fa(found.length) })
       )
     } catch {
       setPanes((p) => p && patch(p, i, { loading: false }))
@@ -3103,7 +3167,7 @@ export default function App() {
         return
       }
       // a modal owns the keyboard: deleting behind the properties sheet would be invisible
-      if (editor || gallery || menu || columnMenu || marksMenu || settingsOpen || openWith || propsFor || breakdownFor || confirmAsk) return
+      if (editor || gallery || menu || columnMenu || marksMenu || sortMenu || settingsOpen || openWith || propsFor || breakdownFor || confirmAsk) return
       const me = panes[active]
 
       if (ev.altKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
@@ -3530,6 +3594,7 @@ export default function App() {
             active={i === active}
             style={paneFlexStyle}
             sort={sortOf(i)}
+            groupBy={(panes[i].fmt?.group ?? prefs.groupBy) as GroupKey}
             view={viewOf(i)}
             sizes={sizes}
             marked={marks.includes(bookmarkTarget(i))}
@@ -3565,6 +3630,7 @@ export default function App() {
               if (mode === 'set') followEditor(i, paths)
             }}
             onFilter={(q) => setPanes((p) => p && patch(p, i, { filter: q }))}
+            onSortMenu={(x, y) => setSortMenu({ x, y })}
             onTabNew={() => addTab(i, tabOf(panes![i]))}
             onTabClose={(idx) => closeTab(i, idx)}
             onTabPick={(idx) => setPanes((p) => p && patch(p, i, { ti: idx, sel: [] }))}
@@ -4169,6 +4235,16 @@ export default function App() {
             if (id.startsWith('mark:')) go(target, id.slice(5))
           }}
           onClose={() => setMarksMenu(null)}
+        />
+      )}
+
+      {sortMenu && (
+        <ContextMenu
+          x={sortMenu.x}
+          y={sortMenu.y}
+          items={sortMenuItems()}
+          onPick={pickSort}
+          onClose={() => setSortMenu(null)}
         />
       )}
 
