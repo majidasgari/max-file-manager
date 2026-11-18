@@ -8,11 +8,11 @@
  * No redirects across origins: the credential is a Basic header, and following a redirect to
  * another host would hand it over. A 3xx is reported as an error instead.
  */
-import { createReadStream, createWriteStream } from 'node:fs'
+import { createWriteStream } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { remoteJoin } from './cloud-core.ts'
+import { countedBody } from './cloud-client.ts'
 
 export type DavConfig = { base: string; user: string; pass: string }
 
@@ -37,6 +37,59 @@ export class DavError extends Error {
     this.name = 'DavError'
     this.status = status
   }
+}
+
+
+const HTML_START = /^\s*<(!doctype|html|head|body|\?xml)/i
+
+const htmlTitle = (body: string): string | null => {
+  const m = /<title[^>]*>([^<]{1,160})<\/title>/i.exec(body)
+  return m ? m[1].replace(/\s+/g, ' ').trim() : null
+}
+
+/**
+ * A WebDAV path that points at a NAS's own web console answers with an HTML page instead of a
+ * DAV response. Passing that markup to the dialog (it used to arrive as a screenful of
+ * `<!DOCTYPE html …>`) told the user nothing, so every failure becomes one sentence that names the
+ * real cause — the port is nearly always the mistake.
+ */
+export function davMessage(status: number, body: string, method = 'REQUEST'): string {
+  const html = HTML_START.test(body)
+  const title = html ? htmlTitle(body) : null
+  if (status === 401) return 'the server rejected the user name or password (401)'
+  if (status === 403) {
+    return 'the server refused this operation (403); this WebDAV root is not writable, choose a shared folder the user may write to'
+  }
+  if (status === 404) return 'the folder does not exist on the server (404)'
+  if (status === 405) return `${method} is not allowed here (405); this address does not look like a WebDAV folder`
+  if (status === 409) return 'the parent folder does not exist yet (409)'
+  if (status === 423) return 'the file is locked by another program (423)'
+  if (status === 507) return 'the server is out of space (507)'
+  if (html || status === 501) {
+    return (
+      `this address answered with a web page, not WebDAV${title ? ` («${title}»)` : ''}. ` +
+      'Check the port: a QNAP NAS serves WebDAV on 5000 (http) or 5001 (https), not on the 8080 ' +
+      'console; Nextcloud is usually https://<host>/remote.php/dav.'
+    )
+  }
+  const detail = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
+  return detail || `${method} failed (${status})`
+}
+
+/** `fetch` collapses every transport problem into «fetch failed»; the cause code is the useful part. */
+export function networkMessage(e: unknown): string {
+  const err = e as { message?: string; cause?: { code?: string; message?: string } }
+  const code = err?.cause?.code ?? ''
+  const text = `${err?.message ?? ''} ${err?.cause?.message ?? ''}`
+  if (/DEPTH_ZERO_SELF_SIGNED|SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF|CERT_/i.test(`${code} ${text}`)) {
+    return 'the server certificate is not trusted; use http on the local network, or import the NAS certificate first'
+  }
+  if (code === 'ECONNREFUSED') return 'nothing is listening at that address; check the host and the port'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'the host name could not be resolved'
+  if (code === 'EHOSTUNREACH' || code === 'ENETUNREACH') return 'the server is not reachable from this machine'
+  if (code === 'ETIMEDOUT' || /timeout/i.test(text)) return 'the connection timed out'
+  if (/abort/i.test(text)) return 'the connection timed out'
+  return err?.cause?.message ?? err?.message ?? String(e)
 }
 
 const XML_HEAD = '<?xml version="1.0" encoding="utf-8"?>'
@@ -188,15 +241,14 @@ export function createDav(config: DavConfig, impl: typeof fetch = fetch) {
         ...(timeout > 0 ? { signal: AbortSignal.timeout(timeout) } : {})
       })
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      throw new DavError(0, /abort|timeout/i.test(msg) ? 'connection timed out' : msg)
+      throw new DavError(0, networkMessage(e))
     }
     if (res.status >= 300 && res.status < 400) {
       throw new DavError(res.status, 'the server tried to redirect to another address')
     }
     if (!res.ok && res.status !== 207) {
       const detail = await res.text().catch(() => '')
-      throw new DavError(res.status, detail.slice(0, 300) || `WebDAV ${res.status}`)
+      throw new DavError(res.status, davMessage(res.status, detail, method))
     }
     return res
   }
@@ -297,7 +349,7 @@ export function createDav(config: DavConfig, impl: typeof fetch = fetch) {
       }
       // Nextcloud/ownCloud keep the source timestamp when it is offered; other servers ignore it.
       if (mtime > 0) headers['X-OC-Mtime'] = String(Math.floor(mtime / 1000))
-      const body = Readable.toWeb(createReadStream(src)) as unknown as ReadableStream<Uint8Array>
+      const body = countedBody(src, onBytes)
       const res = await impl(urlOf(p), {
         method: 'PUT',
         headers: { Authorization: auth, ...headers },
@@ -308,9 +360,8 @@ export function createDav(config: DavConfig, impl: typeof fetch = fetch) {
       } as RequestInit)
       if (!res.ok) {
         const detail = await res.text().catch(() => '')
-        throw new DavError(res.status, detail.slice(0, 300) || `PUT ${res.status}`)
+        throw new DavError(res.status, davMessage(res.status, detail, 'PUT'))
       }
-      onBytes?.(st.size)
     }
   }
   return client

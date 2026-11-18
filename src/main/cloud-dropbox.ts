@@ -2,14 +2,14 @@
  * Dropbox: paths are real paths (`/Docs/a.txt`), so this adapter is a thin JSON wrapper.
  * Uploads send `client_modified`, which is what makes an mtime comparison stable.
  */
-import { createReadStream, promises as fs } from 'node:fs'
-import { Readable } from 'node:stream'
+import { promises as fs } from 'node:fs'
 import {
   CloudHttpError,
   encodePath,
   nameOf,
   normPath,
   parentOf,
+  countedBody,
   writeBody,
   type CloudClient,
   type CloudEntry
@@ -23,6 +23,9 @@ type DbxEntry = {
   size?: number
   client_modified?: string
   server_modified?: string
+  /** content hash and version: either changes when the bytes change */
+  content_hash?: string
+  rev?: string
 }
 
 export function createDropbox(access: string, impl: typeof fetch = fetch): CloudClient {
@@ -60,7 +63,8 @@ export function createDropbox(access: string, impl: typeof fetch = fetch): Cloud
       path,
       dir: e['.tag'] === 'folder',
       size: e.size ?? 0,
-      mtime: when ? Date.parse(when) : 0
+      mtime: when ? Date.parse(when) : 0,
+      ...(e.content_hash || e.rev ? { etag: e.content_hash ?? e.rev } : {})
     }
   }
 
@@ -145,7 +149,7 @@ export function createDropbox(access: string, impl: typeof fetch = fetch): Cloud
         mute: true,
         ...(mtime ? { client_modified: new Date(mtime).toISOString() } : {})
       }
-      const body = Readable.toWeb(createReadStream(src)) as unknown as ReadableStream<Uint8Array>
+      const body = countedBody(src, onBytes)
       const res = await impl(`${content}/files/upload`, {
         method: 'POST',
         headers: {
@@ -158,7 +162,6 @@ export function createDropbox(access: string, impl: typeof fetch = fetch): Cloud
         duplex: 'half'
       } as RequestInit)
       if (!res.ok) throw new CloudHttpError(res.status, (await res.text()).slice(0, 300))
-      onBytes?.(st.size)
     }
   }
   return client

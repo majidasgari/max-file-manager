@@ -2,8 +2,8 @@
  * Pure cloud logic: scheduling, remote path arithmetic and the rows a run may not touch.
  * No fs, no electron — `node --test` imports this file directly.
  */
-import type { SyncRow } from '../shared/sync.ts'
-import type { CloudBindingStatus, CloudEntryState, CloudState } from '../shared/cloud.ts'
+import type { SyncPlan, SyncRow } from '../shared/sync.ts'
+import type { CloudBindingStatus, CloudCounts, CloudEntryState, CloudState } from '../shared/cloud.ts'
 
 /** 30 s, 1 min, 2 min … capped. A failing server is never hammered. */
 export function nextBackoff(failures: number, baseMs: number, maxMs = 30 * 60_000): number {
@@ -45,6 +45,94 @@ export function entryState(state: CloudState, dirty: boolean): CloudEntryState {
  */
 export function conflictPaths(rows: SyncRow[]): string[] {
   return rows.filter((r) => r.state === 'conflict' || r.state === 'typeDiff').map((r) => r.rel).sort()
+}
+
+export const ZERO_COUNTS: CloudCounts = {
+  synced: 0,
+  pending: 0,
+  localOnly: 0,
+  cloudOnly: 0,
+  conflict: 0
+}
+
+/** The badge a comparison row earns, before the run is applied. */
+export function rowEntryState(row: SyncRow): CloudEntryState {
+  switch (row.state) {
+    case 'same':
+      return 'synced'
+    case 'leftOnly':
+      return 'localOnly'
+    case 'rightOnly':
+      return 'cloudOnly'
+    case 'leftNewer':
+    case 'rightNewer':
+    case 'sizeDiff':
+    case 'contentDiff':
+      return 'pending'
+    default:
+      // `typeDiff` and `conflict` are the rows a human has to look at
+      return 'conflict'
+  }
+}
+
+/** conflict is the loudest, then «missing on one side», then «changed», then «fine». */
+const RANK: Record<string, number> = {
+  synced: 0,
+  pending: 1,
+  localOnly: 2,
+  cloudOnly: 3,
+  conflict: 4
+}
+
+const worse = (a: CloudEntryState | undefined, b: CloudEntryState): CloudEntryState =>
+  a === undefined || RANK[b] > RANK[a] ? b : a
+
+export type EntryStates = {
+  /** relative path → state, for the rows that have a local file */
+  files: Map<string, CloudEntryState>
+  /** relative path → the worst state below that folder */
+  dirs: Map<string, CloudEntryState>
+  counts: CloudCounts
+}
+
+/**
+ * The per-path state after a run: the comparison's own verdict, corrected by what the plan actually
+ * did. A copied path is synced even though its row said `leftNewer`; a path whose copy failed keeps
+ * its pending state so the badge does not lie; a locally deleted path disappears from the map.
+ */
+export function entryStates(rows: SyncRow[], applied?: SyncPlan, errors: string[] = []): EntryStates {
+  const verdict = new Map<string, 'synced' | 'gone'>()
+  if (applied) {
+    for (const a of applied.copy) verdict.set(a.rel, 'synced')
+    // a delete on the local side removes the row; one on the cloud side leaves the local copy
+    for (const a of applied.remove) verdict.set(a.rel, a.from === 'left' ? 'gone' : 'synced')
+  }
+  const files = new Map<string, CloudEntryState>()
+  const dirs = new Map<string, CloudEntryState>()
+  const counts: CloudCounts = { ...ZERO_COUNTS }
+  for (const row of rows) {
+    // a failed action must not claim success, so the row keeps the comparison's own verdict
+    const failed = errors.some((e) => e.startsWith(`${row.rel}: `))
+    const fixed = failed ? undefined : verdict.get(row.rel)
+    if (fixed === 'gone') continue
+    const state: CloudEntryState = fixed === 'synced' ? 'synced' : rowEntryState(row)
+    files.set(row.rel, state)
+    counts[state as keyof CloudCounts]++
+    // every ancestor folder carries the worst state below it, so a folder can say
+    // «there is something in here that only exists on the other side»
+    let rel = row.rel
+    for (;;) {
+      const cut = rel.lastIndexOf('/')
+      if (cut < 0) {
+        // '' is the binding root itself: its badge summarises the whole tree
+        dirs.set('', worse(dirs.get(''), state))
+        break
+      }
+      rel = rel.slice(0, cut)
+      dirs.set(rel, worse(dirs.get(rel), state))
+    }
+  }
+  return { files, dirs, counts }
 }
 
 const REMOTE_SEGMENT_BAD = /[\\\u0000]/

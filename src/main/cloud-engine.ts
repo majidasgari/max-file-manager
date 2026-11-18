@@ -10,6 +10,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { hashFile } from './hash.ts'
+import type { CloudHashRow } from './sync-store.ts'
 import { cloudOf, cloudPath, isCloudPath, type CloudBinding } from '../shared/cloud.ts'
 import { remoteJoin } from './cloud-core.ts'
 import type { CloudClient } from './cloud-client.ts'
@@ -18,7 +19,13 @@ import type { Entry } from './types.ts'
 
 const normRel = (rel: string): string => rel.replace(/^\/+/, '').replace(/\/+$/, '')
 
-export function cloudOps(binding: CloudBinding, dav: CloudClient, tempRoot = os.tmpdir()): PathOps {
+export function cloudOps(
+  binding: CloudBinding,
+  dav: CloudClient,
+  tempRoot = os.tmpdir(),
+  /** remote hashes from earlier runs, keyed by relative path; filled here when one is computed */
+  hashes?: Map<string, CloudHashRow>
+): PathOps {
   /** The DAV path of a binding-relative path. '' is the binding's own folder. */
   const davPath = (rel: string): string => {
     const clean = normRel(rel)
@@ -30,6 +37,12 @@ export function cloudOps(binding: CloudBinding, dav: CloudClient, tempRoot = os.
     if (!parsed || parsed.bindingId !== binding.id) throw new Error(`not part of this cloud binding: ${p}`)
     return normRel(parsed.rel)
   }
+
+  /**
+   * The ETag and size each listed file had in this run. Hashing a cloud file means downloading it,
+   * so a remembered hash is reused while the server's ETag is unchanged (see `hash`).
+   */
+  const seen = new Map<string, { size: number; etag: string }>()
 
   /** WebDAV needs every parent collection before a file can be PUT. */
   const made = new Set<string>([''])
@@ -71,6 +84,7 @@ export function cloudOps(binding: CloudBinding, dav: CloudClient, tempRoot = os.
       const out: Entry[] = []
       for (const row of rows) {
         const childRel = normRel(rel ? `${rel}/${row.name}` : row.name)
+        if (!row.dir) seen.set(childRel, { size: row.size, etag: row.etag ?? '' })
         out.push({
           name: row.name,
           path: cloudPath(binding.id, childRel),
@@ -85,10 +99,18 @@ export function cloudOps(binding: CloudBinding, dav: CloudClient, tempRoot = os.
 
     async hash(p) {
       const rel = relOf(p)
+      const meta = seen.get(rel)
+      const remembered = hashes?.get(rel)
+      // the ETag changes whenever the file changes, so the remembered hash is still the content's
+      if (remembered && meta?.etag && remembered.etag === meta.etag && remembered.size === meta.size) {
+        return remembered.hash
+      }
       const tmp = await tempFile()
       try {
         await dav.download(davPath(rel), tmp)
-        return (await hashFile(tmp)) ?? ''
+        const h = (await hashFile(tmp)) ?? ''
+        if (hashes && meta?.etag && h) hashes.set(rel, { size: meta.size, etag: meta.etag, hash: h })
+        return h
       } finally {
         await fs.rm(path.dirname(tmp), { recursive: true, force: true }).catch(() => undefined)
       }

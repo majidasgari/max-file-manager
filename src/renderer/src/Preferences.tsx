@@ -13,7 +13,7 @@ import {
   type Prefs
 } from './prefs'
 import { fa, isAbsolutePath } from './format'
-import { XIcon } from './Icons'
+import { SettingsIcon, XIcon } from './Icons'
 import { AgentsPage } from './AgentsPage'
 import { CloudPage } from './CloudPage'
 import { COMMANDS, COMMAND_BY_ID, DEFAULT_SHORTCUTS, GROUP_ORDER, groupLabelOf, labelOf, type CommandGroup } from './commands'
@@ -335,11 +335,25 @@ export function Preferences({
     </label>
   )
 
+  const currentPage = PAGES.find((p) => p.id === page)
   return (
     <div className="modal" onMouseDown={onClose}>
       <div className="prefs" onMouseDown={(e) => e.stopPropagation()}>
+        {/* the same header the cloud sheet draws: icon tile, title, one subtitle line */}
+        <header className="sheet-head prefs-head">
+          <span className="sheet-logo">
+            <SettingsIcon size={17} />
+          </span>
+          <div className="sheet-titles">
+            <h2>{t('تنظیمات')}</h2>
+            <p>{t(currentPage?.label ?? '')}</p>
+          </div>
+          <button className="cld-close prefs-close" title={t('بستن')} onClick={onClose}>
+            <XIcon size={13} />
+          </button>
+        </header>
+        <div className="prefs-main">
         <nav className="prefs-nav">
-          <div className="prefs-title">{t(t('تنظیمات'))}</div>
           {PAGES.map((p) => (
             <button
               key={p.id}
@@ -797,8 +811,8 @@ export function Preferences({
             <>
               {conflicts.length > 0 && (
                 <div className="warn">
-                  تعارض: {conflicts.map((id) => labelOf(COMMAND_BY_ID[id]) || id).join(t(' ، '))} — یک کلید
-                  به چند فرمان داده شده؛ اولی در فهرست اجرا می‌شود.|is bound to several commands; the first one in the list wins.
+                  {t('تعارض:')} {conflicts.map((id) => labelOf(COMMAND_BY_ID[id]) || id).join(t(' ، '))} —{' '}
+                  {t('یک کلید به چند فرمان داده شده؛ اولی در فهرست اجرا می‌شود.')}
                 </div>
               )}
               {GROUP_ORDER.map((g) => (
@@ -1631,6 +1645,7 @@ export function Preferences({
             </>
           )}
         </section>
+        </div>
       </div>
     </div>
   )

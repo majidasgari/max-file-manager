@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -237,7 +237,12 @@ test('runFile really starts the file, in its own folder', async () => {
       await new Promise((res) => setTimeout(res, 50))
       seen = await readFile(stamp, 'utf8').catch(() => '')
     }
-    assert.equal(seen.trim(), dir, 'the script ran with its own folder as cwd')
+    // macOS reports /private/var/... for the temp dir; both spellings are the same folder
+    assert.equal(
+      await realpath(seen.trim()),
+      await realpath(dir),
+      'the script ran with its own folder as cwd'
+    )
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

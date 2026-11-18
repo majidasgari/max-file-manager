@@ -3,7 +3,8 @@
  * client already had, so `cloudOps`, the preview and the sync run never learn which provider they
  * are talking to.
  */
-import { createWriteStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { Readable, Transform } from 'node:stream'
 import type { ReadableStream as WebReadable } from 'node:stream/web'
 
 export type CloudEntry = {
@@ -61,6 +62,24 @@ export async function writeBody(
   } finally {
     await new Promise<void>((r) => out.end(() => r()))
   }
+}
+
+/**
+ * The body of an upload, reporting bytes as they leave the disk. A provider that only calls
+ * `onBytes(size)` after the response makes the bar sit at 0% and jump to 100% at the end, which is
+ * exactly what a progress bar must not do.
+ */
+export function countedBody(src: string, onBytes?: (n: number) => void): ReadableStream<Uint8Array> {
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      onBytes?.(chunk.length)
+      cb(null, chunk)
+    }
+  })
+  const stream = createReadStream(src).pipe(counter)
+  // a provider that rejects mid-body must not leave an unhandled stream error behind
+  stream.on('error', () => undefined)
+  return Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>
 }
 
 export const encodePath = (p: string): string =>

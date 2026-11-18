@@ -682,7 +682,6 @@ export type Api = {
       error?: string
     }>
     onState(cb: (v: CloudView) => void): () => void
-    onProgress(cb: (p: { bindingId: string; phase: string; done: number; current: string }) => void): () => void
   }
   readText(p: string): Promise<{ text: string; size: number } | { error: string }>
   /** unsaved editor buffers, restored after a crash or a closed window */

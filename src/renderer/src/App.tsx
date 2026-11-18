@@ -13,6 +13,7 @@ import { PropertiesDialog } from './PropertiesDialog'
 import { clearDragPaths, dragOutPaths, lastDragPaths, releaseDragOut } from './drag'
 import { dragLog } from './draglog'
 import { JobsBar } from './JobsBar'
+import { progressFilesLabel, progressPercent } from './cloud-view'
 import { Pane, type FolderView, type PaneState, type SearchQuery, type View } from './Pane'
 import { PreviewPanel } from './PreviewPanel'
 import { RenameDialog } from './RenameDialog'
@@ -3716,6 +3717,8 @@ export default function App() {
     return source.filter((e) => me.sel.includes(e.path)).reduce((n, e) => n + e.size, 0)
   })()
   const running = jobs.filter((j) => j.state === 'running' || j.state === 'paused').length
+  // one cloud run at a time; the footer shows it wherever the user is
+  const cloudRun = clouds?.status.find((st) => st.progress) ?? null
   const selEntry =
     panes[active].sel.length === 1 ? entryOf(active, panes[active].sel[0]) : undefined
   const selName = selEntry ? baseName(selEntry.path) : ''
@@ -4454,6 +4457,27 @@ export default function App() {
         {isRemotePath(curPath) && (
           <span className="remote-chip" title={curPath} dir="ltr">
             {remoteProtocolLabel(curPath)} · {remoteRootLabel(curPath)}
+          </span>
+        )}
+        {cloudRun?.progress && (
+          <span
+            className="cloud-chip"
+            title={
+              cloudRun.progress.phase === 'scan'
+                ? t('در حال بررسی تغییرات…')
+                : `${progressFilesLabel(cloudRun.progress)}${cloudRun.progress.current ? `\n${cloudRun.progress.current}` : ''}`
+            }
+          >
+            {t('همگام‌سازی ابر')}
+            <span
+              className={'cloud-bar' + (progressPercent(cloudRun.progress) === null ? ' scan' : '')}
+              dir="ltr"
+            >
+              <i style={{ width: (progressPercent(cloudRun.progress) ?? 35) + '%' }} />
+            </span>
+            <span dir="ltr">
+              {progressPercent(cloudRun.progress) === null ? '…' : `${fa(progressPercent(cloudRun.progress) ?? 0)}٪`}
+            </span>
           </span>
         )}
         {free != null && <span>{t('آزاد:')} {fmtSize(free, false, prefs.sizeFormat)}</span>}

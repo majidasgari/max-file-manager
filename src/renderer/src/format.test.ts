@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
 import test from 'node:test'
-import {thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
+import {errText, thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
 
 type Entry = {
   name: string
@@ -585,4 +585,16 @@ test('audioTargets follows the selection like Explorer does', () => {
   assert.deepEqual(audioTargets('/a.png', ['/b.mp3', '/c.txt', '/d.MP3']), ['/b.mp3', '/d.MP3'])
   assert.deepEqual(audioTargets(null, ['/b.mp3', '/b.mp3']), ['/b.mp3'], 'no duplicates')
   assert.deepEqual(audioTargets('/a.txt', ['/b.txt']), [])
+})
+
+test('an IPC rejection shows its reason, not Electron’s wrapper', () => {
+  assert.equal(
+    errText(new Error("Error invoking remote method 'cloud:accountSave': Error: the server refused this operation (403)")),
+    'the server refused this operation (403)'
+  )
+  assert.equal(
+    errText(new Error("Error invoking remote method 'cloud:accountSave': DavError: this address is not WebDAV")),
+    'this address is not WebDAV'
+  )
+  assert.equal(errText('plain'), 'plain')
 })

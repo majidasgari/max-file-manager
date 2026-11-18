@@ -14,6 +14,7 @@ import { cloudOps } from './cloud-engine.ts'
 import { applyPlan, compareTrees, createOps } from './sync-engine.ts'
 import { planRows } from './sync-core.ts'
 import { cleanCloudBinding, cloudPath } from '../shared/cloud.ts'
+import type { CloudHashRow } from './sync-store.ts'
 
 const USER = 'alice'
 const PASS = 'secret'
@@ -201,5 +202,71 @@ test('the DAV client refuses a redirect instead of leaking Basic auth', async ()
     await assert.rejects(dav.test(), /redirect/i)
   } finally {
     await new Promise<void>((r) => server.close(() => r()))
+  }
+})
+
+test('a remembered hash costs one download, not one per run', async () => {
+  const local = await fs.mkdtemp(path.join(os.tmpdir(), 'mfm-hash-local-'))
+  const remoteRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mfm-hash-remote-'))
+  const { base, server } = await startDav(remoteRoot)
+  let gets = 0
+  server.on('request', (req) => {
+    if (req.method === 'GET') gets++
+  })
+  try {
+    await fs.writeFile(path.join(local, 'a.txt'), 'same bytes on both sides')
+    const dav = createDav({ base, user: USER, pass: PASS })
+    const binding = cleanCloudBinding({
+      id: 'cloud-hash01',
+      accountId: 'cloud-acct01',
+      name: 'hash',
+      localPath: local,
+      remoteId: '/',
+      remoteLabel: '/',
+      direction: 'both',
+      compareBy: 'hash',
+      deleteExtra: false,
+      intervalMs: 15 * 60_000,
+      enabled: true,
+      paused: false,
+      createdAt: 1
+    })
+    assert.ok(binding)
+    const hashes = new Map<string, CloudHashRow>()
+    const root = cloudPath(binding.id)
+    const ops = createOps(undefined, cloudOps(binding, dav, os.tmpdir(), hashes))
+
+    // upload so both sides exist, then hash the pair: the remote side is read once
+    const first = await compareTrees(local, root, ops, { compareBy: 'hash' })
+    await applyPlan(local, root, planRows(first.rows, 'ltr'), ops, {
+      trash: (p) => fs.rm(p, { force: true })
+    })
+    assert.equal(hashes.size, 0, 'an upload does not fill the cache by itself')
+
+    const before = gets
+    const second = await compareTrees(local, root, ops, { compareBy: 'hash' })
+    assert.deepEqual(second.rows.map((r) => r.state), ['same'])
+    assert.equal(gets - before, 1, 'the first comparison of both sides downloads once')
+    assert.equal(hashes.get('a.txt')?.hash.length, 64)
+    const etag = hashes.get('a.txt')?.etag
+    assert.ok(etag)
+
+    // the ETag did not move, so the remembered hash is reused and nothing is downloaded
+    const beforeThird = gets
+    const third = await compareTrees(local, root, ops, { compareBy: 'hash' })
+    assert.deepEqual(third.rows.map((r) => r.state), ['same'])
+    assert.equal(gets - beforeThird, 0, 'an unchanged file is not downloaded again')
+
+    // a changed file has a new ETag, so it is read again and the cache follows it
+    await fs.writeFile(path.join(remoteRoot, 'a.txt'), 'now the cloud copy changed!')
+    const beforeFourth = gets
+    const fourth = await compareTrees(local, root, ops, { compareBy: 'hash' })
+    assert.equal(fourth.rows[0].state, 'sizeDiff')
+    assert.equal(gets - beforeFourth, 1)
+    assert.notEqual(hashes.get('a.txt')?.etag, etag)
+  } finally {
+    await new Promise<void>((r) => server.close(() => r()))
+    await fs.rm(local, { recursive: true, force: true })
+    await fs.rm(remoteRoot, { recursive: true, force: true })
   }
 })

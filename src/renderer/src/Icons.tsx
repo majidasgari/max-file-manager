@@ -339,9 +339,76 @@ export const CloudIcon = ({ size = 15 }: { size?: number }) => (
 )
 
 /**
- * The mark a row inside a cloud binding draws: the provider glyph on the binding root, a state dot
- * on everything below it. It is additive — the file's own type icon is never replaced.
+ * The mark a row inside a cloud binding draws: the provider glyph on the binding root, a state
+ * glyph on everything below it. It is additive — the file's own type icon is never replaced.
+ *
+ * The glyph carries the meaning (check, up, down, clock, warning) so the state survives without
+ * colour; the tooltip spells it out.
  */
+const CloudStateGlyph = ({ state, size }: { state: string; size: number }) => {
+  switch (state) {
+    case 'localOnly':
+      return (
+        <S size={size}>
+          <path d="M12 18V6M7.5 10.5 12 6l4.5 4.5" />
+        </S>
+      )
+    case 'cloudOnly':
+      return (
+        <S size={size}>
+          <path d="M12 6v12M7.5 13.5 12 18l4.5-4.5" />
+        </S>
+      )
+    case 'pending':
+      return (
+        <S size={size}>
+          <circle cx="12" cy="12" r="7.5" />
+          <path d="M12 8v4.5l3 1.8" />
+        </S>
+      )
+    case 'syncing':
+      return (
+        <S size={size}>
+          <path d="M19 12a7 7 0 0 1-12 4.9M5 12a7 7 0 0 1 12-4.9" />
+          <path d="M5 20v-4h4M19 4v4h-4" />
+        </S>
+      )
+    case 'conflict':
+      return (
+        <S size={size}>
+          <path d="M12 4.5 21 19H3z" />
+          <path d="M12 10v4M12 16.5h.01" />
+        </S>
+      )
+    case 'paused':
+      return (
+        <S size={size}>
+          <path d="M9.5 6v12M14.5 6v12" />
+        </S>
+      )
+    case 'offline':
+      return (
+        <S size={size}>
+          <path d="M7 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17 9.4 4.3 4.3 0 0 1 16.7 18z" />
+          <path d="M4 4l16 16" />
+        </S>
+      )
+    case 'error':
+      return (
+        <S size={size}>
+          <circle cx="12" cy="12" r="7.5" />
+          <path d="M9.5 9.5l5 5M14.5 9.5l-5 5" />
+        </S>
+      )
+    default:
+      return (
+        <S size={size}>
+          <path d="M5 12.5l4.2 4.2L19 7.5" />
+        </S>
+      )
+  }
+}
+
 export const CloudMark = ({
   cloud,
   size = 13
@@ -352,10 +419,12 @@ export const CloudMark = ({
   if (!cloud.root) {
     return (
       <span
-        className={`cloud-dot ${cloudStateClass(cloud.state)}`}
+        className={`cloud-badge ${cloudStateClass(cloud.state)}`}
         title={t(cloudStateLabel(cloud.state))}
         aria-label={t(cloudStateLabel(cloud.state))}
-      />
+      >
+        <CloudStateGlyph state={cloud.state} size={size} />
+      </span>
     )
   }
   return (
@@ -504,8 +573,8 @@ export const FilterIcon = () => (
 )
 
 /** Sliders read as «settings» at 16 px; a many-toothed gear looked like a sun. */
-export const SettingsIcon = () => (
-  <S>
+export const SettingsIcon = ({ size = 15 }: { size?: number }) => (
+  <S size={size}>
     <path d="M4 7h7M15 7h5M4 12h3M11 12h9M4 17h9M17 17h3" />
     <circle cx="13" cy="7" r="2" />
     <circle cx="9" cy="12" r="2" />

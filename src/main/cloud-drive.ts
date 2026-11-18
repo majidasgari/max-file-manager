@@ -235,7 +235,10 @@ export function createDrive(access: string, impl: typeof fetch = fetch): CloudCl
       const stream = Readable.from(
         (async function* () {
           yield head
-          for await (const chunk of createReadStream(src)) yield chunk as Buffer
+          for await (const chunk of createReadStream(src)) {
+            onBytes?.((chunk as Buffer).length)
+            yield chunk as Buffer
+          }
           yield tail
         })()
       )
@@ -252,7 +255,6 @@ export function createDrive(access: string, impl: typeof fetch = fetch): CloudCl
       if (!res.ok) throw new CloudHttpError(res.status, (await res.text()).slice(0, 300))
       const created = (await res.json()) as { id?: string }
       if (created.id) ids.set(normPath(p), created.id)
-      onBytes?.(st.size)
     }
   }
   return client

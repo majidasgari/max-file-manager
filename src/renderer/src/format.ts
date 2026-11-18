@@ -699,3 +699,12 @@ export function audioTargets(
   if (selected.length) return selected
   return path && match(path) ? [path] : []
 }
+
+/**
+ * Electron prefixes a rejected IPC call with `Error invoking remote method 'x': Error: `. That
+ * wrapper is noise in a dialog, so the reason is all the user sees.
+ */
+export function errText(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e)
+  return raw.replace(/^Error invoking remote method '[^']+':\s*(?:[A-Za-z]*Error:\s*)?/, '')
+}

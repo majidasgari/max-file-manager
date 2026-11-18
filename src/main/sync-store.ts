@@ -48,6 +48,16 @@ function db(): Db {
       hash TEXT,
       PRIMARY KEY (pair, rel)
     );
+    -- a cloud server without a content hash has to be read to be hashed; this table remembers the
+    -- answer keyed by the server's own ETag, so a run only downloads what actually changed
+    CREATE TABLE IF NOT EXISTS cloud_hash (
+      pair TEXT NOT NULL,
+      rel TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      etag TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      PRIMARY KEY (pair, rel)
+    );
   `)
   return d
 }
@@ -190,4 +200,34 @@ export function saveBaseline(pair: string, baseline: Baseline): void {
 
 export function clearBaseline(pair: string): void {
   db().prepare('DELETE FROM sync_baseline WHERE pair = ?').run(pair)
+}
+
+/** One remembered remote hash: valid only while the server's ETag and size are unchanged. */
+export type CloudHashRow = { size: number; etag: string; hash: string }
+
+export function loadCloudHashes(pair: string): Map<string, CloudHashRow> {
+  const rows = db()
+    .prepare('SELECT rel, size, etag, hash FROM cloud_hash WHERE pair = ?')
+    .all(pair) as { rel: string; size: number; etag: string; hash: string }[]
+  return new Map(
+    rows.map((r) => [r.rel, { size: Number(r.size) || 0, etag: r.etag, hash: r.hash }])
+  )
+}
+
+export function saveCloudHashes(pair: string, cache: Map<string, CloudHashRow>): void {
+  const d = db()
+  d.exec('BEGIN')
+  try {
+    d.prepare('DELETE FROM cloud_hash WHERE pair = ?').run(pair)
+    const insert = d.prepare('INSERT INTO cloud_hash (pair, rel, size, etag, hash) VALUES (?, ?, ?, ?, ?)')
+    for (const [rel, row] of cache) insert.run(pair, rel, Math.round(row.size), row.etag, row.hash)
+    d.exec('COMMIT')
+  } catch (e) {
+    d.exec('ROLLBACK')
+    throw e
+  }
+}
+
+export function clearCloudHashes(pair: string): void {
+  db().prepare('DELETE FROM cloud_hash WHERE pair = ?').run(pair)
 }

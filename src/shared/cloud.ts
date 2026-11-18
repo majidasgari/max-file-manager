@@ -42,6 +42,10 @@ export type CloudProvider = {
   preservesMtime: boolean
   /** the row that carries the badge; brand names stay in Latin, as on the desktop */
   note?: string
+  /** the hint inside an empty server-address field; a wrong port is the usual WebDAV mistake */
+  urlPlaceholder?: string
+  /** the sentence under that field, so the port trap is explained before it happens */
+  urlHint?: string
   /** why a not-ready provider is not available; shown instead of the protocol line */
   soonReason?: string
 }
@@ -116,7 +120,9 @@ export const CLOUD_PROVIDERS: readonly CloudProvider[] = [
     minIntervalMs: 5 * MINUTE,
     trash: true,
     preservesMtime: true,
-    note: '/remote.php/dav/files/<user>'
+    note: '/remote.php/dav/files/<user>',
+    urlPlaceholder: 'https://cloud.example.com',
+    urlHint: 'برای Nextcloud همان آدرس اصلی کافی است؛ مسیر DAV خودکار اضافه می‌شود.'
   },
   {
     id: 'owncloud',
@@ -127,7 +133,9 @@ export const CLOUD_PROVIDERS: readonly CloudProvider[] = [
     minIntervalMs: 5 * MINUTE,
     trash: true,
     preservesMtime: true,
-    note: '/remote.php/dav/files/<user>'
+    note: '/remote.php/dav/files/<user>',
+    urlPlaceholder: 'https://cloud.example.com',
+    urlHint: 'برای ownCloud همان آدرس اصلی کافی است؛ مسیر DAV خودکار اضافه می‌شود.'
   },
   {
     id: 'webdav',
@@ -137,7 +145,9 @@ export const CLOUD_PROVIDERS: readonly CloudProvider[] = [
     defaultIntervalMs: 15 * MINUTE,
     minIntervalMs: 5 * MINUTE,
     trash: false,
-    preservesMtime: false
+    preservesMtime: false,
+    urlPlaceholder: 'https://dav.example.com',
+    urlHint: 'مسیر کامل WebDAV، بدون اسلش آخر.'
   },
   {
     id: 'qsync',
@@ -148,7 +158,11 @@ export const CLOUD_PROVIDERS: readonly CloudProvider[] = [
     minIntervalMs: 5 * MINUTE,
     trash: false,
     preservesMtime: false,
-    note: 'QNAP · WebDAV'
+    // the QTS web console also answers on 8080 (with HTML), so the port is the usual trap here
+    note: 'QNAP · WebDAV · port 5000',
+    urlPlaceholder: 'http://192.168.1.10:5000',
+    urlHint:
+      'روی QNAP سرویس WebDAV پورت ۵۰۰۰ (http) یا ۵۰۰۱ (https) است؛ ۸۰۸۰ کنسول وب QTS است و WebDAV نیست.'
   }
 ]
 
@@ -212,8 +226,49 @@ export type CloudBinding = {
 
 export type CloudState = 'idle' | 'checking' | 'syncing' | 'paused' | 'offline' | 'error' | 'conflict'
 
-/** What a row in the pane shows next to its icon. */
-export type CloudEntryState = 'synced' | 'pending' | 'syncing' | 'paused' | 'offline' | 'conflict' | 'error'
+/**
+ * What a row in the pane shows next to its icon.
+ *
+ * `localOnly` and `cloudOnly` come from the last comparison: a path that exists on one side only.
+ * A local row can only be `localOnly` itself (a cloud-only path has no row to draw), but a folder
+ * carries the aggregate of its children, so «this folder has content that is only in the cloud»
+ * still shows up where it is useful.
+ */
+export type CloudEntryState =
+  | 'synced'
+  | 'pending'
+  | 'localOnly'
+  | 'cloudOnly'
+  | 'syncing'
+  | 'paused'
+  | 'offline'
+  | 'conflict'
+  | 'error'
+
+/** Per-state file counts of the last comparison, so the page can say what is left to do. */
+export type CloudCounts = {
+  synced: number
+  pending: number
+  localOnly: number
+  cloudOnly: number
+  conflict: number
+}
+
+/**
+ * The live progress of one run, pushed with every state broadcast (throttled in the service).
+ * `scan` has no total yet (the walk does not know how many rows it will find), so the UI draws an
+ * indeterminate bar until `phase` becomes `copy`.
+ */
+export type CloudProgress = {
+  phase: 'scan' | 'copy'
+  files: number
+  filesDone: number
+  bytesTotal: number
+  bytesDone: number
+  current: string
+  /** unix ms; the renderer derives an average speed and an ETA from it */
+  startedAt: number
+}
 
 export type CloudBindingStatus = {
   bindingId: string
@@ -227,6 +282,10 @@ export type CloudBindingStatus = {
   conflicts: string[]
   /** a local or remote change arrived after the last run */
   dirty: boolean
+  /** what the last comparison found, per file state */
+  counts: CloudCounts
+  /** the run in flight; `null` when nothing is running */
+  progress: CloudProgress | null
 }
 
 export type CloudView = {

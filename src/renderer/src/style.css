@@ -1,13 +1,17 @@
 :root {
   color-scheme: dark;
-  --bg: #14161b;
-  --panel: #1a1d23;
-  --panel-2: #1f232a;
-  --panel-3: #252a33;
-  --line: #2b303a;
-  --line-soft: #23272f;
-  --text: #dfe3ea;
-  --dim: #9ba3b2;
+  --bg: #16191f;
+  --panel: #1d222b;
+  --panel-2: #242a34;
+  --panel-3: #2d343f;
+  --line: #353d49;
+  --line-soft: #2b313b;
+  --text: #e4e8ef;
+  --dim: #a4acbb;
+  /* the chrome (title/command bar) and the rail sit a step above the content; a dark theme that
+     overrides --panel still gets the lift because the mix resolves at use time */
+  --chrome: color-mix(in srgb, var(--panel) 92%, #fff);
+  --rail: color-mix(in srgb, var(--panel) 89%, #fff);
   --accent: #5b93ff;
   --accent-soft: #2b3a55;
   --sel: #2c3a52;
@@ -74,6 +78,9 @@
   --line-soft: #e8ebf1;
   --text: #1b1f27;
   --dim: #646c7c;
+  /* in a light theme the chrome and the rail already are the two light surfaces */
+  --chrome: var(--panel);
+  --rail: var(--panel-2);
   --accent: #2f6fe0;
   --accent-soft: #dbe6fb;
   --sel: #dbe6fb;
@@ -1081,6 +1088,10 @@ input {
   overflow-x: auto;
   position: relative;
 }
+/* the list is focused programmatically after a navigation; the highlighted row is the indicator,
+   so the container itself must not draw a ring around the whole pane */
+.rows:focus,
+.rows:focus-visible { outline: none; }
 /* rubber-band selection over the empty space of a pane */
 .marquee {
   position: absolute;
@@ -1137,6 +1148,11 @@ input {
   align-items: center;
   gap: 7px;
   min-width: 0;
+}
+/* file names sit a step above the chrome's labels; the columns are measured from this */
+.row .name,
+.compact-row .name {
+  font-size: 14px;
 }
 .trunc {
   overflow: hidden;
@@ -1247,7 +1263,7 @@ input {
 }
 .tile-name {
   width: 100%;
-  font-size: 11.5px;
+  font-size: 13px;
   line-height: 1.35;
   text-align: center;
   color: var(--text);
@@ -7513,6 +7529,7 @@ html.vp-cinema body {
   align-items: center;
   color: var(--accent);
 }
+.cloud-mark.is-busy { animation: cloud-pulse 1.4s ease-in-out infinite; }
 .cloud-mark.is-conflict { color: var(--c-archive); }
 .cloud-mark.is-error { color: var(--c-pdf); }
 .cloud-mark.is-paused,
@@ -7526,7 +7543,125 @@ html.vp-cinema body {
 .cloud-mark.onedrive { color: #2b7cd3; }
 .cloud-mark.protondrive { color: #6d4aff; }
 
+.cloud-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--dim);
+  opacity: 0.75;
+}
+/* «everything is fine» is the quietest state: the badge is a hint, not a label */
+.cloud-badge.is-synced { color: var(--c-code); opacity: 0.42; }
+.cloud-badge.is-pending { color: var(--c-archive); opacity: 1; }
+.cloud-badge.is-local-only { color: #d08a2c; opacity: 1; }
+.cloud-badge.is-cloud-only { color: var(--accent); opacity: 1; }
+.cloud-badge.is-busy { color: var(--accent); opacity: 1; }
+.cloud-badge.is-conflict { color: var(--c-archive); opacity: 1; }
+.cloud-badge.is-error { color: var(--c-pdf); opacity: 1; }
+.cloud-badge.is-paused,
+.cloud-badge.is-offline { color: var(--dim); opacity: 0.5; }
+
+/* ── run progress: sidebar row, settings page and the status bar share one bar ─────────────── */
+.cloud-bar {
+  display: block;
+  position: relative;
+  height: 4px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+.cloud-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}
+/* the walk has no total yet: a fixed stub says «working», a percentage would be a guess */
+.cloud-bar.scan > i {
+  width: 35% !important;
+  opacity: 0.5;
+}
+.cloud-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 1px 2px 3px;
+}
+.cloud-progress .cloud-bar { flex: 1; min-width: 24px; }
+.cloud-progress-pct {
+  flex: none;
+  font-size: 10px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.side-cloud-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.side-cloud-body .tree-name { width: 100%; }
+
+.cloud-run {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0 4px;
+}
+.cloud-run-meta {
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cloud-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+.cloud-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 10px;
+  color: var(--dim);
+}
+.cloud-count > i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.cloud-count.is-synced > i { background: var(--c-code); }
+.cloud-count.is-pending > i { background: var(--c-archive); }
+.cloud-count.is-local-only > i { background: #d08a2c; }
+.cloud-count.is-cloud-only > i { background: var(--accent); }
+.cloud-count.is-conflict > i { background: var(--c-pdf); }
+.cloud-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+}
+.cloud-chip .cloud-bar { width: 64px; }
+.cloud-chip .cloud-bar > i { background: currentColor; }
+
 .thumb > .cloud-mark,
+.thumb > .cloud-badge,
 .thumb > .cloud-dot {
   position: absolute;
   inset-inline-end: 4px;
@@ -8407,7 +8542,7 @@ html.vp-cinema body {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  width: 60px;
+  width: 66px;
   flex: none;
   padding: 5px 3px 4px;
   border: 1px solid transparent;
@@ -8421,8 +8556,8 @@ html.vp-cinema body {
   cursor: pointer;
 }
 .rb svg {
-  width: 17px;
-  height: 17px;
+  width: 21px;
+  height: 21px;
   color: var(--dim);
   transition: color 0.12s;
 }
@@ -8488,3 +8623,370 @@ html.vp-cinema body {
   word-break: break-all;
 }
 .cld-redirect .cld-mini { margin-inline-start: auto; }
+
+/* ─────────────────────────── one sheet, everywhere ───────────────────────────
+   The connect-cloud sheet is the reference for the whole shell: white surfaces,
+   `--panel-2` fields with a hairline border, 9–16 px radii, a blue accent, quiet
+   labels and pill chips. Nothing here changes layout or behaviour — only the
+   surface language, so the panes, the sidebar, the popovers and every dialog
+   read as the same family. */
+
+:root {
+  --r-sm: 9px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  /* an input/pill background, the same one the cloud fields use */
+  --field: var(--panel-2);
+  --hover: color-mix(in srgb, var(--accent) 7%, var(--panel-2));
+  --shadow-soft:
+    0 1px 2px color-mix(in srgb, #000 8%, transparent),
+    0 12px 28px -18px color-mix(in srgb, #000 35%, transparent);
+  --shadow-sheet:
+    0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset,
+    0 34px 80px -28px color-mix(in srgb, #000 45%, transparent),
+    0 2px 12px color-mix(in srgb, #000 10%, transparent);
+}
+:root[data-theme='light'] {
+  --shadow-soft:
+    0 1px 2px rgba(23, 39, 79, 0.06),
+    0 12px 28px -18px rgba(23, 39, 79, 0.22);
+  --shadow-sheet:
+    0 1px 0 #fff inset,
+    0 34px 80px -28px rgba(23, 39, 79, 0.3),
+    0 2px 12px rgba(23, 39, 79, 0.08);
+}
+
+/* ── window chrome ─────────────────────────────────────────────────────────── */
+.app { border-radius: 14px; }
+html[data-rounded='0'] .app { border-radius: 0; }
+.topbar {
+  padding: 8px 10px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 78%),
+    var(--chrome);
+  border-bottom: 1px solid var(--line-soft);
+}
+.logo {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-soft);
+}
+.brand { letter-spacing: 0.1px; }
+
+/* the command bar is a strip of sheet buttons, in both styles */
+.cmdbar,
+.cmdbar.ribbon {
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line-soft);
+}
+.cmdbar { padding: 6px 8px; }
+.cmdbar.ribbon { padding: 4px 8px 0; }
+.cmdb {
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+}
+.cmdb:hover {
+  background: var(--field);
+  border-color: var(--line);
+}
+.cmdbar.ribbon .rb-group {
+  padding: 4px 8px 2px;
+  border-inline-end: 1px solid var(--line-soft);
+}
+.rb { border-radius: var(--r-sm); }
+.rb:hover:not(:disabled) {
+  background: var(--field);
+  border-color: var(--line);
+}
+.rb-group-label { letter-spacing: 0.04em; }
+.rb-more { border-radius: var(--r-sm); }
+
+/* ── sidebar: the sheet's soft rail ────────────────────────────────────────── */
+.side {
+  padding: 8px;
+  /* the sidebar tone levels still apply; only their base moved up with the rail */
+  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--rail));
+  border-inline-end: 1px solid var(--line-soft);
+}
+.side-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.side-section-head { margin-top: 2px; }
+.side-section-badge {
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--dim);
+}
+.tree-row { border-radius: var(--r-sm); min-height: 26px; }
+.side .tree-row:hover { background: color-mix(in srgb, var(--accent) 8%, var(--rail)); }
+.tree-row:hover { background: var(--hover); }
+.tree-row.on { background: var(--accent-soft); }
+.side-add {
+  border-radius: 8px;
+  color: var(--dim);
+}
+.side-add:hover { background: var(--panel-3); color: var(--accent); }
+.side-split { background: var(--line-soft); }
+.side-split:hover,
+.side-split:active { background: var(--accent); }
+
+/* ── panes, tabs and the address field ─────────────────────────────────────── */
+.pane {
+  background: var(--panel-2);
+  border-inline-start: 1px solid var(--line-soft);
+}
+.pane.active { background: var(--panel); }
+.tabs {
+  padding: 8px 8px 2px;
+  background: transparent;
+  border-bottom: 0;
+  gap: 6px;
+}
+.tab {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: var(--field);
+  font-size: 11.5px;
+}
+.tab:hover {
+  background: var(--panel-3);
+  border-color: var(--line);
+}
+/* the same pill as the sheet's step chips */
+.tab.on,
+.pane:not(.active) .tab.on {
+  margin-bottom: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+.tab .x { border-radius: 999px; }
+
+/* the address row is the sheet's input: one rounded field with icons inside */
+.path {
+  margin: 4px 8px 6px;
+  padding: 3px 6px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.path:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.path .tb { border-radius: 7px; }
+.crumb { border-radius: 6px; }
+.crumb:hover { background: var(--panel-3); }
+.addr-edit input {
+  padding: 2px 7px;
+  background: var(--panel);
+  border-radius: 7px;
+}
+.filter,
+.filter-float { border-radius: var(--r-sm); }
+
+/* ── rows and tiles ─────────────────────────────────────────────────────────── */
+.row,
+.compact-row { border-radius: 8px; }
+.row:hover,
+.compact-row:hover { background: var(--hover); }
+.row.on,
+.compact-row.on { background: var(--accent-soft); }
+.row.on .name,
+.row.on .trunc { color: var(--text); font-weight: 550; }
+.tile { border-radius: var(--r-md); }
+.tile:hover { background: var(--hover); }
+.tile.on { background: var(--accent-soft); }
+.head { color: var(--dim); font-size: 10.5px; letter-spacing: 0.02em; }
+.thumb.pic {
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--panel-2);
+}
+
+/* ── status bar ─────────────────────────────────────────────────────────────── */
+.status {
+  padding: 6px 12px;
+  background: var(--chrome);
+  border-top: 1px solid var(--line-soft);
+  font-size: 11px;
+}
+.status-note,
+.index-chip,
+.remote-chip,
+.update-chip { border-radius: 999px; }
+.status-note { padding: 2px 9px; }
+
+/* ── buttons, fields, segmented controls ───────────────────────────────────── */
+.btn {
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 550;
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 8%, transparent);
+}
+.btn.ghost {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: none;
+}
+.btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+.tb { border-radius: 8px; }
+.seg {
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--field);
+}
+.seg button {
+  padding: 4px 13px;
+  border-radius: 999px;
+}
+.seg button.on {
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: var(--shadow-soft);
+}
+
+/* dialogs: the sheet itself, so every modal matches the cloud one */
+.dialog {
+  padding: 18px;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sheet);
+  gap: 14px;
+}
+.dialog input,
+.dialog textarea,
+.dialog select,
+.pref-input,
+.prefs input:not([type='checkbox']):not([type='radio']),
+.prefs select,
+.prefs textarea,
+.setting input:not([type='checkbox']),
+.setting select {
+  border-radius: var(--r-sm);
+  background: var(--field);
+}
+.dialog input:focus,
+.dialog textarea:focus,
+.dialog select:focus,
+.pref-input:focus,
+.prefs input:focus,
+.prefs select:focus,
+.prefs textarea:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.dialog textarea { min-height: 74px; }
+
+/* popovers and menus */
+.ctx,
+.settings,
+.column-menu {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sheet);
+}
+.ctx { padding: 6px; }
+.ctx-item { border-radius: var(--r-sm); padding: 6px 8px; }
+.ctx-item:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* settings window: the sheet's header, rail and labelled rows */
+.prefs {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sheet);
+}
+.prefs-head {
+  margin: 0;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 8%, transparent),
+    transparent
+  );
+}
+.prefs-close {
+  margin-inline-start: auto;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--dim);
+  background: transparent;
+}
+.prefs-close:hover { background: var(--panel-3); color: var(--text); }
+.prefs-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 196px 1fr;
+}
+.prefs-nav {
+  padding: 12px 10px;
+  gap: 3px;
+  background: var(--panel-2);
+  border-inline-end: 1px solid var(--line-soft);
+}
+.prefs-title { padding: 2px 10px 11px; color: var(--dim); }
+.prefs-tab {
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.prefs-tab:hover { background: var(--panel-3); }
+.prefs-tab.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.prefs-body { padding: 16px 18px; }
+.pref-group {
+  margin: 18px 0 6px;
+  padding-bottom: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line-soft);
+}
+.pref-row { padding-bottom: 11px; }
+
+/* a thin, rounded scrollbar in every pane and popover */
+.rows::-webkit-scrollbar,
+.side::-webkit-scrollbar,
+.prefs-body::-webkit-scrollbar,
+.prefs-nav::-webkit-scrollbar,
+.dialog::-webkit-scrollbar,
+.cld-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.rows::-webkit-scrollbar-thumb,
+.side::-webkit-scrollbar-thumb,
+.prefs-body::-webkit-scrollbar-thumb,
+.prefs-nav::-webkit-scrollbar-thumb,
+.dialog::-webkit-scrollbar-thumb,
+.cld-body::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--text) 22%, transparent);
+}
+.rows::-webkit-scrollbar-thumb:hover,
+.side::-webkit-scrollbar-thumb:hover,
+.prefs-body::-webkit-scrollbar-thumb:hover,
+.prefs-nav::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text) 38%, transparent);
+}

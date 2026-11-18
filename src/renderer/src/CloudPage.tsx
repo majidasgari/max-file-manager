@@ -2,10 +2,18 @@ import { useEffect, useState } from 'react'
 import { api, type CloudBinding, type CloudView } from './api'
 import { CLOUD_PROVIDERS, MINUTE, cloudProvider, type CloudProviderId } from '../../shared/cloud.ts'
 import { t } from './i18n.ts'
-import { fa } from './format'
+import { errText, fa, fmtSize } from './format'
 import { CloudIcon, FolderIcon, PlayIcon, PlusIcon, TrashIcon } from './Icons'
 import { CloudDialog } from './CloudDialog'
-import { INTERVAL_OPTIONS, agoLabel, bindingSubtitle, cloudStateClass, intervalLabel } from './cloud-view'
+import {
+  INTERVAL_OPTIONS,
+  agoLabel,
+  bindingSubtitle,
+  cloudStateClass,
+  intervalLabel,
+  progressFilesLabel,
+  progressPercent
+} from './cloud-view'
 
 type Props = {
   activeDir: string
@@ -20,7 +28,6 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [note, setNote] = useState('')
-  const [progress, setProgress] = useState<Record<string, string>>({})
 
   const refresh = (): void => {
     void api.cloud.list().then(setView)
@@ -29,16 +36,7 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
   useEffect(() => {
     refresh()
     const off = api.cloud.onState((v) => setView(v))
-    const offProgress = api.cloud.onProgress((p) => {
-      setProgress((cur) => ({
-        ...cur,
-        [p.bindingId]: p.phase === 'compare' ? `${t('مقایسه')}: ${p.current}` : `${t('انتقال')}: ${p.current}`
-      }))
-    })
-    return () => {
-      off()
-      offProgress()
-    }
+    return () => off()
   }, [])
 
   const runNow = async (b: CloudBinding): Promise<void> => {
@@ -55,7 +53,7 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
         )
       onChanged()
     } catch (e) {
-      setNote(e instanceof Error ? e.message : String(e))
+      setNote(errText(e))
     } finally {
       setBusy(null)
       refresh()
@@ -113,7 +111,52 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
             <div className="cloud-path" dir="ltr">
               {acc?.label ?? ''} · {b.remoteLabel}
             </div>
-            {progress[b.id] && <div className="hint" dir="auto">{progress[b.id]}</div>}
+            {st?.progress && (
+              <div className="cloud-run">
+                <span
+                  className={'cloud-bar' + (progressPercent(st.progress) === null ? ' scan' : '')}
+                  dir="ltr"
+                >
+                  <i style={{ width: (progressPercent(st.progress) ?? 35) + '%' }} />
+                </span>
+                <span className="cloud-run-meta" dir="auto">
+                  {st.progress.phase === 'scan' ? (
+                    <>
+                      {t('در حال بررسی تغییرات…')}
+                      {st.progress.current ? ` · ${st.progress.current}` : ''}
+                    </>
+                  ) : (
+                    <>
+                      {fa(progressPercent(st.progress) ?? 0)}٪ · {progressFilesLabel(st.progress)}
+                      {st.progress.bytesTotal > 0
+                        ? ` · ${fmtSize(st.progress.bytesDone, false)} / ${fmtSize(st.progress.bytesTotal, false)}`
+                        : ''}
+                      {st.progress.current ? ` · ${st.progress.current}` : ''}
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+            {st && (st.counts.synced + st.counts.pending + st.counts.localOnly + st.counts.cloudOnly + st.counts.conflict > 0) && (
+              <div className="cloud-counts">
+                {(
+                  [
+                    ['synced', t('همگام'), st.counts.synced],
+                    ['pending', t('در انتظار'), st.counts.pending],
+                    ['localOnly', t('فقط لوکال'), st.counts.localOnly],
+                    ['cloudOnly', t('فقط در ابر'), st.counts.cloudOnly],
+                    ['conflict', t('تعارض'), st.counts.conflict]
+                  ] as const
+                )
+                  .filter(([, , n]) => n > 0)
+                  .map(([key, label, n]) => (
+                    <span key={key} className={`cloud-count ${cloudStateClass(key)}`}>
+                      <i />
+                      {fa(n)} {label}
+                    </span>
+                  ))}
+              </div>
+            )}
             {st?.lastError && (
               <div className="hint" dir="auto" style={{ color: 'var(--danger, #e0564d)' }}>
                 {st.lastError}

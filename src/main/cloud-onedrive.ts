@@ -3,13 +3,13 @@
  * so this stays a thin wrapper like Dropbox; the timestamp is server-set on upload, which is why
  * the binding defaults to a content-hash comparison for this provider.
  */
-import { createReadStream, promises as fs } from 'node:fs'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import {
   CloudHttpError,
   encodePath,
   normPath,
+  countedBody,
   writeBody,
   type CloudClient,
   type CloudEntry
@@ -21,7 +21,8 @@ type GraphItem = {
   name: string
   size?: number
   folder?: { childCount: number }
-  file?: { mimeType?: string }
+  file?: { mimeType?: string; hashes?: { quickXorHash?: string; sha1Hash?: string } }
+  eTag?: string
   lastModifiedDateTime?: string
   parentReference?: { path?: string }
 }
@@ -60,7 +61,10 @@ export function createOneDrive(access: string, impl: typeof fetch = fetch): Clou
     path: remoteJoin(parent, it.name),
     dir: !!it.folder,
     size: it.size ?? 0,
-    mtime: it.lastModifiedDateTime ? Date.parse(it.lastModifiedDateTime) : 0
+    mtime: it.lastModifiedDateTime ? Date.parse(it.lastModifiedDateTime) : 0,
+    ...(it.file?.hashes?.quickXorHash || it.eTag
+      ? { etag: it.file?.hashes?.quickXorHash ?? it.eTag }
+      : {})
   })
 
   const client: CloudClient = {
@@ -163,7 +167,7 @@ export function createOneDrive(access: string, impl: typeof fetch = fetch): Clou
       if (st.size > MAX_SIMPLE) {
         throw new Error('this file is larger than the 250 MB one-request upload limit')
       }
-      const body = Readable.toWeb(createReadStream(src)) as unknown as ReadableStream<Uint8Array>
+      const body = countedBody(src, onBytes)
       const res = await impl(`${itemUrl(p)}:/content`, {
         method: 'PUT',
         headers: { ...auth, 'Content-Type': 'application/octet-stream', 'Content-Length': String(st.size) },
@@ -171,7 +175,6 @@ export function createOneDrive(access: string, impl: typeof fetch = fetch): Clou
         duplex: 'half'
       } as RequestInit)
       if (!res.ok) throw new CloudHttpError(res.status, (await res.text()).slice(0, 300))
-      onBytes?.(st.size)
     }
   }
   return client

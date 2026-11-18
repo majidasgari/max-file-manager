@@ -1,8 +1,8 @@
 import { t } from './i18n.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type DirRef, type CloudBinding, type CloudView, type Drive, type RemoteProfile, type SyncJob } from './api'
-import { bindingSubtitle } from './cloud-view'
-import { baseName, fa } from './format'
+import { bindingSubtitle, progressPercent } from './cloud-view'
+import { baseName, fa, fmtSize } from './format'
 import { clearDragPaths, dragOutPaths, keepDragPaths, lastDragPaths, pathsOf, releaseDragOut } from './drag'
 import { dragLog } from './draglog'
 import { ChevronDownIcon, ChevronLeftIcon, CloudIcon, DriveIcon, EjectIcon, EntryIcon, FolderIcon, HomeIcon, PinIcon, PlayIcon, PlusIcon, ServerIcon, StarIcon, SwapIcon, UsbIcon, XIcon } from './Icons'
@@ -536,21 +536,47 @@ export function Sidebar({
           return (
             <div key={b.id} className="tree-row side-cloud">
               <span className="twisty" />
-              <button
-                type="button"
-                className="tree-name"
-                dir="auto"
-                title={`${b.localPath}\n${account?.label ?? ''} · ${b.remoteLabel}`}
-                onClick={() => onCloud?.(b)}
-              >
-                <span className={`cloud-mark ${account?.provider ?? 'webdav'}`}>
-                  <CloudIcon size={13} />
-                </span>
-                <span>{b.name}</span>
-                <span className="side-cloud-sub" dir="auto">
-                  {bindingSubtitle(st?.state ?? 'idle', st?.lastRunAt ?? null, st?.conflicts.length ?? 0)}
-                </span>
-              </button>
+              <div className="side-cloud-body">
+                <button
+                  type="button"
+                  className="tree-name"
+                  dir="auto"
+                  title={`${b.localPath}\n${account?.label ?? ''} · ${b.remoteLabel}`}
+                  onClick={() => onCloud?.(b)}
+                >
+                  <span className={`cloud-mark ${account?.provider ?? 'webdav'}`}>
+                    <CloudIcon size={13} />
+                  </span>
+                  <span>{b.name}</span>
+                  {!st?.progress && (
+                    <span className="side-cloud-sub" dir="auto">
+                      {bindingSubtitle(st?.state ?? 'idle', st?.lastRunAt ?? null, st?.conflicts.length ?? 0)}
+                    </span>
+                  )}
+                </button>
+                {st?.progress && (
+                  <span
+                    className="cloud-progress"
+                    title={`${st.progress.current || t('در حال همگام‌سازی…')}${
+                      st.progress.bytesTotal
+                        ? `\n${fmtSize(st.progress.bytesDone, false)} / ${fmtSize(st.progress.bytesTotal, false)}`
+                        : ''
+                    }`}
+                  >
+                    <span
+                      className={'cloud-bar' + (progressPercent(st.progress) === null ? ' scan' : '')}
+                      dir="ltr"
+                    >
+                      <i style={{ width: (progressPercent(st.progress) ?? 35) + '%' }} />
+                    </span>
+                    <span className="cloud-progress-pct">
+                      {progressPercent(st.progress) === null
+                        ? t('بررسی')
+                        : `${fa(progressPercent(st.progress) ?? 0)}٪`}
+                    </span>
+                  </span>
+                )}
+              </div>
             </div>
           )
         })}

@@ -9,7 +9,7 @@ import {
 } from './api'
 import { CLOUD_PROVIDERS, MINUTE, OAUTH_REDIRECT_URI, cloudProvider } from '../../shared/cloud.ts'
 import { t } from './i18n.ts'
-import { fa, fmtSize, isAbsolutePath } from './format'
+import { errText, fa, fmtSize, isAbsolutePath } from './format'
 import {
   CheckIcon,
   ChevronLeftIcon,
@@ -95,7 +95,7 @@ export function CloudDialog({ activeDir, onClose, onSaved }: Props) {
     try {
       await fn()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -175,7 +175,7 @@ export function CloudDialog({ activeDir, onClose, onSaved }: Props) {
     } catch (e) {
       if (seq.current === mine) {
         setPreview(null)
-        setPreviewError(e instanceof Error ? e.message : String(e))
+        setPreviewError(errText(e))
       }
     } finally {
       if (seq.current === mine) setPreviewBusy(false)
@@ -386,12 +386,12 @@ export function CloudDialog({ activeDir, onClose, onSaved }: Props) {
                       dir="ltr"
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
-                      placeholder="https://cloud.example.com"
+                      placeholder={activeProvider.urlPlaceholder ?? 'https://cloud.example.com'}
                       spellCheck={false}
                       autoComplete="off"
                     />
                   </span>
-                  <small>{t('برای Nextcloud همان آدرس اصلی کافی است؛ مسیر DAV خودکار اضافه می‌شود.')}</small>
+                  <small>{t(activeProvider.urlHint ?? 'مسیر کامل WebDAV، بدون اسلش آخر.')}</small>
                 </label>
                 <div className="cld-row">
                   <label className="cld-field">

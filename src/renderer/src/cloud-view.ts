@@ -1,4 +1,4 @@
-import type { CloudEntryState, CloudState } from '../../shared/cloud.ts'
+import type { CloudEntryState, CloudProgress, CloudState } from '../../shared/cloud.ts'
 import { t } from './i18n.ts'
 import { fa } from './format.ts'
 
@@ -7,6 +7,8 @@ export const CLOUD_STATE_LABEL: Record<CloudState | CloudEntryState, string> = {
   idle: 'همگام',
   synced: 'همگام',
   pending: 'در انتظار همگام‌سازی',
+  localOnly: 'فقط روی این دستگاه',
+  cloudOnly: 'فقط در ابر',
   checking: 'بررسی تغییرات',
   syncing: 'در حال همگام‌سازی',
   paused: 'مکث',
@@ -26,7 +28,25 @@ export function cloudStateClass(state: string): string {
   if (state === 'offline') return 'is-offline'
   if (state === 'error') return 'is-error'
   if (state === 'pending') return 'is-pending'
+  if (state === 'localOnly') return 'is-local-only'
+  if (state === 'cloudOnly') return 'is-cloud-only'
   return 'is-synced'
+}
+
+/**
+ * The percentage a progress bar draws, or `null` while the trees are still being walked (there is
+ * no total yet, so the bar is indeterminate instead of lying with 0).
+ */
+export function progressPercent(p: CloudProgress): number | null {
+  if (p.phase === 'scan') return null
+  const ratio = p.bytesTotal > 0 ? p.bytesDone / p.bytesTotal : p.files > 0 ? p.filesDone / p.files : 1
+  return Math.max(0, Math.min(100, Math.round(ratio * 100)))
+}
+
+/** «۳ از ۱۲ فایل · ۱٫۲ مگابایت از ۵ مگابایت»، for the line under the bar. */
+export function progressFilesLabel(p: CloudProgress): string {
+  if (p.phase === 'scan') return ''
+  return `${fa(p.filesDone)} ${t('از')} ${fa(p.files)} ${t('فایل')}`
 }
 
 export const INTERVAL_OPTIONS = [5, 15, 30, 60, 180, 360, 720] as const

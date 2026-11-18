@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseMultistatus, parseStat } from './cloud-dav.ts'
+import { davMessage, networkMessage, parseMultistatus, parseStat } from './cloud-dav.ts'
 
 const XML = `<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
@@ -59,4 +59,30 @@ test('a depth 0 response gives the resource itself', () => {
 
 test('a response without any prop is not a resource', () => {
   assert.equal(parseStat('<d:multistatus xmlns:d="DAV:"/>'), null)
+})
+
+test('the NAS web console is reported as a wrong port, never as raw markup', () => {
+  const html =
+    '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN">\n<html><head><title>QTS</title></head><body>…</body></html>'
+  const msg = davMessage(501, html, 'PROPFIND')
+  assert.match(msg, /not WebDAV/)
+  assert.match(msg, /5000/)
+  assert.doesNotMatch(msg, /DOCTYPE|<html>/)
+})
+
+test('an auth failure and an unwritable root say what to do', () => {
+  assert.match(davMessage(401, ''), /user name or password/)
+  assert.match(davMessage(403, '<html></html>'), /not writable/)
+  assert.match(davMessage(404, ''), /does not exist/)
+  assert.match(davMessage(500, 'disk on fire'), /disk on fire/)
+})
+
+test('transport failures translate the cause code instead of «fetch failed»', () => {
+  assert.match(networkMessage({ message: 'fetch failed', cause: { code: 'ECONNREFUSED' } }), /port/)
+  assert.match(networkMessage({ message: 'fetch failed', cause: { code: 'ENOTFOUND' } }), /resolved/)
+  assert.match(
+    networkMessage({ message: 'fetch failed', cause: { code: 'DEPTH_ZERO_SELF_SIGNED_CERT' } }),
+    /certificate/
+  )
+  assert.match(networkMessage({ message: 'AbortError: aborted' }), /timed out/)
 })

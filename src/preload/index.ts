@@ -192,11 +192,6 @@ contextBridge.exposeInMainWorld('api', {
       const fn = (_e: unknown, v: unknown) => cb(v)
       ipcRenderer.on('cloud:state', fn)
       return () => ipcRenderer.removeListener('cloud:state', fn)
-    },
-    onProgress: (cb: (p: unknown) => void) => {
-      const fn = (_e: unknown, p: unknown) => cb(p)
-      ipcRenderer.on('cloud:progress', fn)
-      return () => ipcRenderer.removeListener('cloud:progress', fn)
     }
   },
   diffFiles: (a: string, b: string) => ipcRenderer.invoke('fs:diff', { a, b }),

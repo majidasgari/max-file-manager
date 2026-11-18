@@ -89,6 +89,7 @@ import {
 } from './audioTags.ts'
 import { execFile } from 'node:child_process'
 import { clearThumbs, thumbFor } from './thumbs.ts'
+import { RAW_IMAGE_MAX_BYTES, rawImageType } from './image-mime.ts'
 import {
   clearIndex,
   indexRoots,
@@ -1160,6 +1161,52 @@ function openStandalone(kind: 'gallery' | 'editor', file: string): { ok: true } 
   }
 }
 
+/**
+ * One response for both `thumb://` registrations (the initial window and the one a chrome change
+ * rebuilds). A real thumbnail is a cached PNG; the formats `nativeImage` cannot decode (SVG, WebP,
+ * GIF, BMP, ICO, AVIF) are handed over as the original file with their own MIME type, because
+ * Chromium draws all of them and a blank tile was the alternative.
+ */
+async function serveThumb(req: Request): Promise<Response> {
+  const url = new URL(req.url)
+  const side = Number(url.searchParams.get('s') ?? 256) || 256
+  const remote = remoteFromMediaUrl(req.url)
+  let p = ''
+  if (remote) {
+    try {
+      p = await cacheFor().ensure(remote.uri, remote.version)
+    } catch {
+      return new Response('remote file unavailable', { status: 404 })
+    }
+  } else {
+    p = mediaPathFromUrl(req.url)
+    if (!path.isAbsolute(p)) return new Response('bad path', { status: 400 })
+  }
+  // a versioned URL (?v=mtime-size) is immutable: a changed file gets a new URL. Without one the
+  // renderer cannot tell us the file changed, so it must revalidate instead of trusting a day-old hit
+  const cacheControl = url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache'
+
+  const file = await thumbFor(p, side)
+  if (file) {
+    const res = await net.fetch(pathToFileURL(file).toString())
+    const headers = new Headers(res.headers)
+    headers.set('Cache-Control', cacheControl)
+    return new Response(res.body, { status: res.status, headers })
+  }
+
+  const mime = rawImageType(p)
+  const st = mime ? await fs.stat(p).catch(() => null) : null
+  if (!mime || !st || !st.isFile() || st.size === 0 || st.size > RAW_IMAGE_MAX_BYTES) {
+    return new Response('no thumb', { status: 404 })
+  }
+  const res = await net.fetch(pathToFileURL(p).toString())
+  const headers = new Headers(res.headers)
+  headers.set('Content-Type', mime)
+  headers.set('Content-Length', String(st.size))
+  headers.set('Cache-Control', cacheControl)
+  return new Response(res.body, { status: res.status, headers })
+}
+
 app.whenReady().then(async () => {
   void initPlayer()
   // Remote files are materialized here before the renderer sees a path; the version in the URL
@@ -1185,30 +1232,7 @@ app.whenReady().then(async () => {
     return serveLocalFile(req, p)
   })
 
-  protocol.handle('thumb', async (req) => {
-    const url = new URL(req.url)
-    const side = Number(url.searchParams.get('s') ?? 256) || 256
-    const remote = remoteFromMediaUrl(req.url)
-    let p = ''
-    if (remote) {
-      try {
-        p = await cacheFor().ensure(remote.uri, remote.version)
-      } catch {
-        return new Response('remote file unavailable', { status: 404 })
-      }
-    } else {
-      p = mediaPathFromUrl(req.url)
-      if (!path.isAbsolute(p)) return new Response('bad path', { status: 400 })
-    }
-    const file = await thumbFor(p, side)
-    if (!file) return new Response('no thumb', { status: 404 })
-    const res = await net.fetch(pathToFileURL(file).toString())
-    const headers = new Headers(res.headers)
-    // a versioned URL (?v=mtime-size) is immutable: a changed file gets a new URL. Without one the
-    // renderer cannot tell us the file changed, so it must revalidate instead of trusting a day-old hit
-    headers.set('Cache-Control', url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache')
-    return new Response(res.body, { status: res.status, headers })
-  })
+  protocol.handle('thumb', serveThumb)
 
   ipcMain.handle('thumbs:clear', () => clearThumbs())
 
@@ -2682,20 +2706,7 @@ app.whenReady().then(async () => {
     await saveChrome(chrome)
     // frame/transparent cannot change on a live window: rebuild it, the UI comes back from the store
     const old = win
-    protocol.handle('thumb', async (req) => {
-    const url = new URL(req.url)
-    const p = mediaPathFromUrl(req.url)
-    const side = Number(url.searchParams.get('s') ?? 256) || 256
-    if (!path.isAbsolute(p)) return new Response('bad path', { status: 400 })
-    const file = await thumbFor(p, side)
-    if (!file) return new Response('no thumb', { status: 404 })
-    const res = await net.fetch(pathToFileURL(file).toString())
-    const headers = new Headers(res.headers)
-    // a versioned URL (?v=mtime-size) is immutable: a changed file gets a new URL. Without one the
-    // renderer cannot tell us the file changed, so it must revalidate instead of trusting a day-old hit
-    headers.set('Cache-Control', url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache')
-    return new Response(res.body, { status: res.status, headers })
-  })
+    protocol.handle('thumb', serveThumb)
 
   ipcMain.handle('thumbs:clear', () => clearThumbs())
 

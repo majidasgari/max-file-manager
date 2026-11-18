@@ -33,7 +33,7 @@ engine.
 | Nextcloud | WebDAV + app password (`/remote.php/dav/files/<user>`) | ready |
 | ownCloud | WebDAV + app password | ready |
 | WebDAV | URL + user + password | ready |
-| Qsync | QNAP's WebDAV (the Qsync client protocol is not public) | ready |
+| Qsync | QNAP's WebDAV, **port 5000** (http) / 5001 (https); the Qsync client protocol is not public | ready |
 | Google Drive | OAuth + Drive v3 (path→id resolution) | ready |
 | Dropbox | OAuth + `files/list_folder` | ready |
 | OneDrive | OAuth + Microsoft Graph path API | ready |
@@ -97,8 +97,14 @@ cloud); no `.conflict` copies are invented.
 
 ## Scheduling and «lightweight»
 
-- **One 30 s tick for the whole app**, not a timer per folder. A binding is due at
-  `lastRunAt + interval`; the floor is 5 minutes for WebDAV and 15 minutes is the default.
+- **One timer per binding**, armed for its own `lastRunAt + interval`; the 30 s tick is only a
+  safety net. A binding is due at `lastRunAt + interval`; the floor is 5 minutes for WebDAV and
+  15 minutes is the default.
+- **Scheduled runs are serial**: one binding walks the cloud at a time (a run is mostly network),
+  and the start-up catch-up is staggered (0.8 s, then 1.2 s per binding) instead of opening the
+  app with a burst of walks. A manual *Sync now* still starts immediately.
+- After a run, the local watcher ignores its own writes for 3 s, so a download does not echo into
+  a second run.
 - A **recursive `fs.watch`** on the local folder pulls the next run forward after a 1.5 s debounce.
   No directory is scanned on a timer.
 - **Catch-up on start**: everything that changed while the app was closed is applied on the first
@@ -108,30 +114,63 @@ cloud); no `.conflict` copies are invented.
 - With zero bindings, nothing runs and no request is made. The app does not start a background
   daemon; if it is closed, nothing syncs.
 
-Local changes reach the cloud within seconds via the watcher. Remote changes are bounded by the
-interval: this phase walks the tree again on each run (`list` only; hashing still downloads). Delta
-cursors (`changes.list`, `list_folder/continue`, Graph `delta`) and Dropbox's long-poll are the next
-optimization behind the same `CloudClient` interface.
+Local changes reach the cloud within seconds via the watcher. A **new or unpaused binding runs in a
+moment** (`kick()`), not on the next 30 s tick. Remote changes are bounded by the interval: this
+phase walks the tree again on each run (`list` only). A hash-mode binding does not re-read unchanged
+files — the server's ETag is remembered next to the hash (`cloud_hash` table), so only a file whose
+ETag moved is downloaded again. Delta cursors (`changes.list`, `list_folder/continue`, Graph
+`delta`) and Dropbox's long-poll are the next optimization behind the same `CloudClient` interface.
 
 ## Compare modes
 
 - `mtime` (default for servers that keep the source timestamp: Nextcloud/ownCloud send/receive
   `X-OC-Mtime`).
-- `hash` (default for plain WebDAV/Qsync, where a PUT resets the timestamp): the content hash is
-  compared, which is correct but downloads both sides. `HashCache` keeps one download per file per
-  run.
+- `hash` (default for plain WebDAV/Qsync, where a PUT resets the timestamp, and for OneDrive, whose
+  Graph API stamps its own timestamp): the content hash is compared. A cloud file is downloaded
+  only when it has to be hashed, and the answer is remembered keyed by the server's ETag
+  (`cloud_hash`), so an unchanged file costs no transfer across runs. The first comparison of a
+  populated folder still reads it once.
 
 Both are per-binding in settings.
+
+After an upload in hash mode, the service records **what the server says** about the new file
+(`Last-Modified`) in the baseline and remembers its hash. Without that, a server that rewrites the
+timestamp on PUT (QNAP, generic WebDAV, OneDrive) would make a locally deleted file look «edited on
+both sides» on every later run and badge it as a conflict forever.
 
 ## Badges in the pane
 
 `main` enriches `fs:list` results: an entry inside a binding gets `cloud: { provider, state, root }`.
 
 - **root**: the provider glyph next to the folder icon (the folder's own colour/icon is preserved);
-- **anything below it**: a small state dot (`synced`, `pending`, `syncing`, `paused`, `offline`,
-  `conflict`, `error`);
+- **anything below it**: a state glyph — `synced` (quiet check), `pending` (clock), `localOnly` (up
+  arrow), `cloudOnly` (down arrow), `syncing`, `paused`, `offline`, `conflict` (warning), `error`;
+- the state comes from the **last comparison** (`entryStates` in `cloud-core`, kept per binding in
+  memory), not from the binding's global state: a file that still has to go up says so while the
+  rest of the folder is already synced;
+- a **folder carries the worst state below it** (conflict > cloudOnly > localOnly > pending >
+  synced), and the binding root aggregates the whole tree. That is how «something in here exists
+  only in the cloud» is visible without inventing ghost rows for files that are not on disk;
+- what a run applied is marked `synced`, a failed copy keeps its pending state, and a locally
+  deleted path leaves the map;
 - the type icon is never replaced, and the badge costs no fs call (a prefix lookup over the
   bindings).
+
+The settings page shows the same numbers as chips (`۳ همگام · ۱ فقط در ابر`) and the one-line
+progress of the run in flight.
+
+## Progress
+
+`CloudBindingStatus.progress` carries the run in flight, so the sidebar row, the settings page and
+the status bar draw the same bar (no second event channel):
+
+- the walk phase has no total, so the bar is an indeterminate stub with «checking for changes…»;
+- the copy phase has `files`/`bytesTotal` from the **plan** and `filesDone`/`bytesDone` as they
+  happen; the percentage is bytes when the plan has bytes, files otherwise;
+- provider uploads must report bytes **while the body streams** (`countedBody`), not once at the
+  end — a provider that only reports the final size makes the bar sit at 0 % and jump to 100 %;
+- the service throttles the broadcast to ~4 frames a second and clears the progress on finish or
+  error.
 
 ## Limits
 
@@ -146,15 +185,28 @@ Both are per-binding in settings.
 
 - `src/shared/cloud.test.ts` — path/id validation, interval floors, overlapping bindings.
 - `src/main/cloud-core.test.ts` — backoff, dirty debounce, entry states, remote path arithmetic.
-- `src/main/cloud-dav.test.ts` — Multi-Status parsing (namespaces, encoded names, depth 1).
+- `src/main/cloud-dav.test.ts` — Multi-Status parsing (namespaces, encoded names, depth 1) and the
+  error text for a web console answering instead of WebDAV, a 401/403, and transport failures.
 - `src/main/cloud-engine.test.ts` — a real loopback WebDAV stub and a full two-way run through
-  `compareTrees`/`applyPlan`: upload, nested MKCOL, download, delete, and the redirect refusal.
+  `compareTrees`/`applyPlan`: upload, nested MKCOL, download, delete, the redirect refusal, and the
+  ETag-keyed hash cache (one download for the first comparison, none while the ETag holds).
+- `src/main/cloud-oauth.test.ts` — PKCE, the consent URL of all three providers, the token body, the
+  Drive name query, and a sign-in that times out and closes its loopback server.
 
-## Tests
-
-OAuth URL/PKCE/token-body and the Drive name query have their own tests (`cloud-oauth.test.ts`);
-the adapters take an injected `fetch`, so a provider can be exercised against a stub without a
+OAuth adapters take an injected `fetch`, so a provider can be exercised against a stub without a
 network. A live sign-in needs a registered app and a real account.
+
+## QNAP / Qsync notes
+
+- WebDAV on QNAP runs on **5000 (http)** or **5001 (https)**; 8080 is the QTS web console and
+  answers PROPFIND with an HTML page. The dialog says so next to the field, and an HTML answer is
+  turned into one sentence (`davMessage`) instead of raw markup.
+- The WebDAV root is not writable: browse into a share (`/home`, `/Public`, …) and bind a folder
+  there. A 403 says exactly that.
+- QNAP rewrites `Last-Modified` on PUT and ignores `X-OC-Mtime`, which is why the binding compares
+  by hash and why the baseline is refreshed from the server after every upload.
+- `https` on 5001 uses the NAS's own certificate; if it is not trusted the error says so instead of
+  «fetch failed».
 
 ## MCP
 

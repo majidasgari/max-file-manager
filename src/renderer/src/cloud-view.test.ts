@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
-import { agoLabel, bindingSubtitle, cloudStateClass, intervalLabel } from './cloud-view.ts'
+import { agoLabel, bindingSubtitle, cloudStateClass, intervalLabel, progressFilesLabel, progressPercent } from './cloud-view.ts'
 
 // the default UI language is English; these labels are asserted in Persian
 setLang('fa')
@@ -28,4 +28,13 @@ test('state maps to a css class and a subtitle', () => {
   assert.equal(cloudStateClass('nope'), 'is-synced')
   assert.equal(bindingSubtitle('syncing', null, 0), 'در حال همگام‌سازی…')
   assert.equal(bindingSubtitle('idle', null, 2), '۲ تعارض')
+})
+
+test('the bar is indeterminate while scanning and honest while copying', () => {
+  const base = { phase: 'scan' as const, files: 10, filesDone: 3, bytesTotal: 0, bytesDone: 0, current: '', startedAt: 0 }
+  assert.equal(progressPercent(base), null)
+  assert.equal(progressPercent({ ...base, phase: 'copy', bytesTotal: 200, bytesDone: 50 }), 25)
+  assert.equal(progressPercent({ ...base, phase: 'copy', files: 10, filesDone: 4 }), 40)
+  assert.equal(progressPercent({ ...base, phase: 'copy', bytesTotal: 10, bytesDone: 999 }), 100)
+  assert.equal(progressFilesLabel({ ...base, phase: 'copy', files: 10, filesDone: 4 }), '۴ از ۱۰ فایل')
 })
