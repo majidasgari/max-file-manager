@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { accelFromEvent, findConflicts, formatAccel, matchAccel, parseAccel } from './keys.ts'
+import { accelFromEvent, findConflicts, formatAccel, matchAccel, parseAccel, systemShortcut } from './keys.ts'
 
 const ev = (o: Partial<KeyboardEvent>) => o as KeyboardEvent
 
@@ -48,4 +48,54 @@ test('findConflicts reports every id sharing a key', () => {
   assert.deepEqual(bad.sort(), ['copy', 'move'])
   assert.deepEqual(findConflicts({ copy: 'F5', move: 'F6' }), [])
   assert.deepEqual(findConflicts({ a: '', b: '' }), [])
+})
+
+test('each desktop gets its own window and quit chords', () => {
+  const ev = (key: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) => ({
+    key,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...mods
+  })
+  assert.equal(systemShortcut(ev('w', { ctrlKey: true }), 'linux'), 'close-window')
+  assert.equal(systemShortcut(ev('W', { ctrlKey: true }), 'win32'), 'close-window')
+  assert.equal(systemShortcut(ev('w', { metaKey: true }), 'darwin'), 'close-window')
+  assert.equal(systemShortcut(ev('q', { ctrlKey: true }), 'linux'), 'quit')
+  assert.equal(systemShortcut(ev('q', { metaKey: true }), 'darwin'), 'quit')
+  // Windows quits with Alt+F4 (the OS), not Ctrl+Q
+  assert.equal(systemShortcut(ev('q', { ctrlKey: true }), 'win32'), null)
+  // Ctrl+Q is not a quit on macOS
+  assert.equal(systemShortcut(ev('q', { ctrlKey: true }), 'darwin'), null)
+})
+
+test('the navigation and trash keys follow the platform', () => {
+  const ev = (key: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) => ({
+    key,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...mods
+  })
+  assert.equal(systemShortcut(ev('ArrowUp', { altKey: true }), 'linux'), 'up')
+  assert.equal(systemShortcut(ev('ArrowUp', { altKey: true }), 'win32'), 'up')
+  assert.equal(systemShortcut(ev('ArrowUp', { metaKey: true }), 'darwin'), 'up')
+  assert.equal(systemShortcut(ev('Delete'), 'linux'), 'trash')
+  assert.equal(systemShortcut(ev('Backspace', { metaKey: true }), 'darwin'), 'trash')
+  assert.equal(systemShortcut(ev('Delete', { shiftKey: true }), 'win32'), null, 'Shift+Delete is the command table')
+  assert.equal(systemShortcut(ev('[', { metaKey: true }), 'darwin'), 'back')
+  assert.equal(systemShortcut(ev(']', { metaKey: true }), 'darwin'), 'forward')
+  assert.equal(systemShortcut(ev('i', { metaKey: true }), 'darwin'), 'properties')
+  assert.equal(systemShortcut(ev('o', { metaKey: true }), 'darwin'), 'open')
+  assert.equal(systemShortcut(ev('n', { ctrlKey: true, shiftKey: true }), 'win32'), 'new-folder')
+  assert.equal(systemShortcut(ev('n', { metaKey: true, shiftKey: true }), 'darwin'), 'new-folder')
+  assert.equal(systemShortcut(ev('Tab', { ctrlKey: true, shiftKey: true }), 'linux'), 'prev-tab')
+  assert.equal(systemShortcut(ev('F11'), 'linux'), 'fullscreen')
+  // a chord with both modifiers belongs to the system (⌃⌘F is macOS full screen)
+  assert.equal(systemShortcut(ev('w', { ctrlKey: true, metaKey: true }), 'darwin'), null)
+  assert.equal(systemShortcut(ev('g', { metaKey: true, shiftKey: true }), 'darwin'), 'address')
+  assert.equal(systemShortcut(ev('r', { metaKey: true, shiftKey: true }), 'darwin'), 'rename')
+  assert.equal(systemShortcut(ev('Enter'), 'darwin'), null, 'plain Enter belongs to the command handler')
 })

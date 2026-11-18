@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
 import test from 'node:test'
-import {errText, thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
+import {errText, childPathIn, thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
 
 type Entry = {
   name: string
@@ -597,4 +597,17 @@ test('an IPC rejection shows its reason, not Electron’s wrapper', () => {
     'this address is not WebDAV'
   )
   assert.equal(errText('plain'), 'plain')
+})
+
+test('coming out of a folder selects it in the parent listing', () => {
+  assert.equal(childPathIn('/a/b', '/a/b/c'), '/a/b/c')
+  assert.equal(childPathIn('/a/b', '/a/b/c/d'), '/a/b/c')
+  assert.equal(childPathIn('/a/b/', '/a/b/c'), '/a/b/c')
+  assert.equal(childPathIn('/a', '/a/b/c'), '/a/b')
+  assert.equal(childPathIn('/a/b', '/a/b'), null)
+  assert.equal(childPathIn('/a/b', '/a/bc'), null)
+  assert.equal(childPathIn('/a/b', '/x/y'), null)
+  assert.equal(childPathIn('', '/a/b'), null)
+  assert.equal(childPathIn('C:\\a\\b', 'C:\\a\\b\\c'), 'C:\\a\\b\\c')
+  assert.equal(childPathIn('C:\\a\\b', 'D:\\x'), null)
 })

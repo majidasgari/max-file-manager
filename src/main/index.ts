@@ -2672,6 +2672,12 @@ app.whenReady().then(async () => {
     else if (action === 'maximize') (w.isMaximized() ? w.unmaximize() : w.maximize())
     else w.close()
   })
+  ipcMain.handle('app:quit', () => {
+    // the tray keeps the window alive on close; a quit must not be turned into a hide
+    quitting = true
+    app.quit()
+    return true
+  })
   ipcMain.handle('window:isMax', (e) => !!senderWindow(e)?.isMaximized())
   ipcMain.handle('window:fullscreen', (e, on: boolean) => {
     const w = senderWindow(e)

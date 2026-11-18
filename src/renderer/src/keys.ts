@@ -96,3 +96,63 @@ export function findConflicts(map: Record<string, string>): string[] {
   for (const ids of seen.values()) if (ids.length > 1) out.push(...ids)
   return out
 }
+
+/**
+ * Shortcuts every desktop expects, which are not user commands: ⌘Q quits on macOS, ⌘↑ goes to the
+ * enclosing folder, Explorer/Dolphin use Alt+↑ for the same and Delete for the trash. Kept pure so
+ * one table decides for all three platforms (and the test can walk it).
+ */
+export type SystemAction =
+  | 'close-window'
+  | 'quit'
+  | 'fullscreen'
+  | 'up'
+  | 'trash'
+  | 'back'
+  | 'forward'
+  | 'properties'
+  | 'open'
+  | 'new-folder'
+  | 'rename'
+  | 'address'
+  | 'prev-tab'
+
+type KeyLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>
+
+/** Ctrl on Linux/Windows, Cmd on macOS — never both, and never with Alt in the same chord. */
+export function systemShortcut(ev: KeyLike, platform: string): SystemAction | null {
+  const mac = platform === 'darwin'
+  const key = ev.key
+  const k = key.length === 1 ? key.toLowerCase() : key
+  const mod = mac ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey
+  const plain = !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey
+
+  if (key === 'F11' && plain) return 'fullscreen'
+  // Delete is the trash key on every desktop; Shift+Delete stays a user command (permanent)
+  if (key === 'Delete' && plain) return 'trash'
+  // parent folder: Alt+Up on Windows/Linux, Cmd+Up on macOS
+  if (!mac && ev.altKey && !ev.ctrlKey && !ev.metaKey && key === 'ArrowUp') return 'up'
+  // previous tab: Ctrl+Shift+Tab (Cmd+Shift+Tab on macOS)
+  if (ev.shiftKey && ev.altKey === false && key === 'Tab' && (mac ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey)) {
+    return 'prev-tab'
+  }
+
+  if (mod && !ev.altKey) {
+    if (k === 'w') return 'close-window'
+    if (k === 'q' && (mac || platform === 'linux')) return 'quit'
+    if (ev.shiftKey && k === 'n') return 'new-folder'
+    if (mac) {
+      if (key === 'ArrowUp' && !ev.shiftKey) return 'up'
+      if (key === 'ArrowDown' && !ev.shiftKey) return 'open'
+      if (k === '[' ) return 'back'
+      if (k === ']') return 'forward'
+      if (k === 'i' && !ev.shiftKey) return 'properties'
+      if (k === 'o' && !ev.shiftKey) return 'open'
+      if ((key === 'Backspace' || key === 'Delete') && !ev.shiftKey) return 'trash'
+      if (ev.shiftKey && k === 'g') return 'address'
+      // macOS often takes F2 for a system action; this is the same command without a function key
+      if (ev.shiftKey && k === 'r') return 'rename'
+    }
+  }
+  return null
+}

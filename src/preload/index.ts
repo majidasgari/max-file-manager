@@ -290,7 +290,8 @@ contextBridge.exposeInMainWorld('api', {
     openViewer: (kind: 'gallery' | 'editor', file: string) =>
       ipcRenderer.invoke('app:openViewer', { kind, path: file }),
     setWallpaper: (p: string, fillMode?: string) =>
-      ipcRenderer.invoke('app:setWallpaper', p, fillMode)
+      ipcRenderer.invoke('app:setWallpaper', p, fillMode),
+    quit: () => ipcRenderer.invoke('app:quit')
   },
   undo: { run: () => ipcRenderer.invoke('undo:run'), depth: () => ipcRenderer.invoke('undo:depth') },
   window: {

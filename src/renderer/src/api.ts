@@ -788,6 +788,8 @@ export type Api = {
     openViewer(kind: 'gallery' | 'editor', path: string): Promise<{ ok: true } | { error: string }>
     /** KDE/Plasma only: make an image the desktop background, optionally with a `-f` fill mode */
     setWallpaper(path: string, fillMode?: string): Promise<{ ok: true } | { error: string }>
+    /** Ctrl+Q / ⌘Q: quit for real, even when the window is set to hide in the tray */
+    quit(): Promise<boolean>
   }
   undo: { run(): Promise<{ done: number; label: string }>; depth(): Promise<number> }
   window: {
