@@ -237,6 +237,23 @@ try {
 const boot = bootState()
 const bootPrefs = boot.prefs ?? {}
 
+// Dragging a file out of this window needs XWayland: under native Wayland `webContents.startDrag`
+// cannot start (Chromium's Wayland drag controller answers «Failed to get focused window») and the
+// renderer's own drag only offers a uri-list, which other apps read as plain text — no file ever
+// arrives. Ozone is chosen before this file runs, so `appendSwitch` is too late: the app re-launches
+// itself once as an XWayland client, the way the installed launcher used to. A flag on the command
+// line (`--ozone-platform=wayland`) still wins, and a smoke run is never re-launched.
+if (
+  process.platform === 'linux' &&
+  process.env['WAYLAND_DISPLAY'] &&
+  process.env['DISPLAY'] &&
+  !process.env['SMOKE_SHOT'] &&
+  !process.argv.some((a) => a.startsWith('--ozone-platform'))
+) {
+  app.relaunch({ args: [...process.argv.slice(1), '--ozone-platform=x11'] })
+  app.exit(0)
+}
+
 // frame/transparent are window-construction options, so the chrome choice is read before the window exists
 /**
  * One sync service for the app: saved jobs, the queue and the scheduler. It reads the jobs from the

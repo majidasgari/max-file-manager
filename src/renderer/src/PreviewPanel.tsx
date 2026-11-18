@@ -1,5 +1,5 @@
 import { t } from './i18n.ts'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react'
 import {
   api,
   type Entry,
@@ -14,6 +14,10 @@ import { renderMarkdown } from './md'
 import { cleanHtml, isHtmlPath } from './html'
 import { highlightCode, langFor } from './highlight'
 import { VideoPlayer } from './VideoPlayer'
+import { musicState, subscribeMusic } from './music'
+
+/** The player's own chunk, fetched the first time it opens: a disabled module has no UI code loaded. */
+const MusicPanel = lazy(() => import('./MusicPlayer').then((m) => ({ default: m.MusicPlayer })))
 
 type Props = {
   entry: Entry | null
@@ -74,6 +78,8 @@ export function PreviewPanel({
   const [pdfBoot, setPdfBoot] = useState(0)
   const [player, setPlayer] = useState<PlayerState | null>(null)
   const [caps, setCaps] = useState<PlayerCapabilities | null>(null)
+  // an open player owns this slot: no other preview is fetched while it is up
+  const musicOpen = useSyncExternalStore(subscribeMusic, musicState).open
   useEffect(() => {
     if (data?.kind !== 'video') return
     let live = true
@@ -159,7 +165,7 @@ export function PreviewPanel({
     setData(null)
     setDataPath('')
     setErr('')
-    if (!entry || entry.dir) return
+    if (!entry || entry.dir || musicOpen) return
     let live = true
     void api
       .preview(entry.path, maxKB)
@@ -176,7 +182,7 @@ export function PreviewPanel({
     return () => {
       live = false
     }
-  }, [entry?.path, entry?.mtime, entry?.size, entry?.dir, maxKB])
+  }, [entry?.path, entry?.mtime, entry?.size, entry?.dir, maxKB, musicOpen])
 
   const lines = (data?.text ?? '').split(/\r?\n/)
   const lang = entry ? langFor(entry.path) : null
@@ -245,7 +251,13 @@ export function PreviewPanel({
         </button>
       </div>
 
-      {!entry ? (
+      {musicOpen ? (
+        <div className="preview-body music-body">
+          <Suspense fallback={null}>
+            <MusicPanel onNote={onNote} />
+          </Suspense>
+        </div>
+      ) : !entry ? (
         <div className="preview-empty">{t(t('یک فایل انتخاب کن'))}</div>
       ) : entry.dir ? (
         <div className="preview-empty">{t(t('پوشه — برای دیدن محتوا بازش کن'))}</div>

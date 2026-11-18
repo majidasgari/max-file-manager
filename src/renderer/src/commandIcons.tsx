@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import {
   ArchiveIcon,
   ArchiveOpenIcon,
+  AudioIcon,
   ChevronLeftIcon,
   CloudIcon,
   DriveIcon,
@@ -59,6 +60,7 @@ export const CMD_ICON: Record<CommandId, JSX.Element> = {
   refresh: <RefreshIcon />,
   up: <ChevronLeftIcon />,
   previewPane: <PreviewIcon />,
+  music: <AudioIcon />,
   gallery: <EyeIcon />,
   flat: <ListIcon />,
   dupes: <DupeIcon />,

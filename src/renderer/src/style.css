@@ -2893,6 +2893,126 @@ html[data-rounded='0'] .app {
   width: 100%;
   border-radius: 6px;
 }
+/* embedded music player: takes the whole preview slot, list scrolls inside it */
+.music-body {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  overflow: hidden;
+}
+.music {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-height: 0;
+  padding: 8px;
+}
+.music-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.music-now {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+  text-align: start;
+}
+.music-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-2);
+  border-radius: 6px;
+}
+.music-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline-end: 4px;
+}
+.music-row.on {
+  background: var(--sel);
+}
+.music-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  text-align: start;
+  font-size: 12px;
+  color: var(--text);
+}
+.music-row.on .music-pick {
+  color: var(--accent);
+}
+.music-pick .idx {
+  flex: none;
+  width: 20px;
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.music-pick .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.music-foot {
+  display: flex;
+  gap: 6px;
+}
+/* tags + cover of the loaded track, under the playlist */
+.music-info {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.music-cover {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--panel-3);
+}
+.music-cover.none {
+  display: grid;
+  place-items: center;
+  color: var(--dim);
+}
+.music-tags {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.music-tags > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.music-title {
+  color: var(--text);
+  font-size: 12.5px;
+}
 .preview-text {
   margin: 0;
   width: 100%;
@@ -7249,7 +7369,9 @@ html.vp-cinema body {
 }
 
 /* audio tag editor: shared two-column fields, one row per file, and the cover picker */
-.tag-dialog {
+/* `dialog.tag-dialog` on purpose: the shared `.dialog` width appears later in this file and a plain
+   `.tag-dialog` loses the tie on order, which squeezed these fields into a 380 px sheet. */
+.dialog.tag-dialog {
   width: 680px;
   max-width: 94vw;
   gap: 10px;
@@ -7263,6 +7385,15 @@ html.vp-cinema body {
   gap: 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line-soft);
+}
+/* a fixed label column: labels differ in length per language, and with flex sizes the inputs
+   staggered row by row inside the two-column grid */
+.tag-grid .pref-label {
+  flex: none;
+  width: 92px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tag-grid .pref-control {
   flex: 1;
@@ -7335,6 +7466,9 @@ html.vp-cinema body {
 }
 .tag-cover .seg {
   align-self: center;
+  /* three Persian labels: let them wrap onto a second line instead of pushing the sheet wider */
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 /* ── cloud folders ─────────────────────────────────────────────────────────── */

@@ -302,7 +302,7 @@ const EN: Record<string, string> = {
   'توضیح کوتاه…': 'Short note…',
   'بی‌امتیاز': 'Unrated',
   'از ۵': 'of 5',
-  'برچسب‌های صوتی —': 'Audio tags —',
+  'برچسب‌های صوتی': 'Audio tags',
   'برچسب‌های صوتی ذخیره شد': 'Audio tags saved',
   'تبدیل تصاویر': 'Convert images',
   'قالب خروجی': 'Output format',
@@ -1330,7 +1330,7 @@ const EN: Record<string, string> = {
   'نگه‌داشتن کاور فعلی': 'Keep current cover',
   'شماره‌گذاری خودکار': 'Auto-number',
   'مقادیر متفاوت — با نوشتن، برای همه اعمال می‌شود': 'Different values — typing applies it to every file',
-  'برچسب‌های صوتی — {n} فایل': 'Audio tags — {n} files',
+  'برچسب‌های صوتی ({n} فایل)': 'Audio tags ({n} files)',
   'برچسب‌های صوتی… ({n})': 'Audio tags… ({n})',
   'خواندن برچسب‌ها ممکن نشد': 'The tags could not be read',
   'نوشتن برچسب نشد': 'The tags could not be written',
@@ -1551,6 +1551,29 @@ const EN: Record<string, string> = {
   'OAuth · ورود در مرورگر': 'OAuth · sign in with a browser',
   'QNAP · WebDAV': 'QNAP · WebDAV',
   'WebDAV · رمز برنامه': 'WebDAV · app password',
+  'پخش‌کنندهٔ موسیقی': 'Music player',
+  'پلی‌لیست در پنل پیش‌نمایش؛ خاموش = این ماژول هیچ بخشی بار نمی‌کند و حافظه نمی‌گیرد':
+    'Playlist in the preview panel; off means this module loads nothing and holds no memory',
+  'قطعهٔ قبلی': 'Previous track',
+  'قطعهٔ بعدی': 'Next track',
+  'توقف': 'Pause',
+  'پخش': 'Play',
+  'پلی‌لیست خالی است': 'Playlist is empty',
+  '{n} قطعه': 'Tracks: {n}',
+  'بستن پخش‌کننده': 'Close player',
+  'حذف از پلی‌لیست': 'Remove from playlist',
+  'روی فایل‌های موسیقی راست‌کلیک کن و «افزودن به پلی‌لیست موسیقی» را بزن':
+    'Right-click music files and pick «Add to music playlist»',
+  'پخش این فایل ممکن نشد': 'That file could not be played',
+  'ذخیرهٔ پلی‌لیست': 'Save playlist',
+  'پلی‌لیست ذخیره شد': 'Playlist saved',
+  'پاک کردن': 'Clear',
+  'افزودن به پلی‌لیست موسیقی': 'Add to music playlist',
+  'افزودن به پلی‌لیست موسیقی ({n})': 'Add to music playlist ({n})',
+  'موسیقی': 'Music',
+  'قطعهٔ {n}': 'Track {n}',
+  'پخش‌کنندهٔ موسیقی — افزودن و پخش': 'Music player — add and play',
+  '{n} فایل به پلی‌لیست موسیقی اضافه شد': 'Added {n} files to the music playlist'
 }
 
 export function t(key: string, vars?: Record<string, string | number>): string {

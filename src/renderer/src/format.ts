@@ -357,6 +357,15 @@ export function navIndex(cur: number, move: NavMove, count: number, cols = 1, pa
   return Math.max(0, Math.min(count - 1, target[move]))
 }
 
+/**
+ * Which cell step a horizontal arrow means.
+ *
+ * A grid lays its first cell out on the right in an RTL pane, so the same physical key walks the
+ * list the other way; `navIndex` always counts in layout order.
+ */
+export const sidewaysMove = (key: 'ArrowLeft' | 'ArrowRight', rtl: boolean): NavMove =>
+  key === (rtl ? 'ArrowLeft' : 'ArrowRight') ? 'right' : 'left'
+
 /** Formats the archive reader understands (zip + tar family). */
 export const isArchiveName = (name: string): boolean =>
   /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tbz2)$/i.test(name)
@@ -672,14 +681,21 @@ export function cleanMarkNames(raw: unknown): Record<string, string> {
   return out
 }
 
+/** Every extension the preview panel plays as audio (main's `preview.ts` AUDIO set). */
+export const isAudioFile = (p: string): boolean => /\.(mp3|flac|wav|ogg|m4a|opus)$/i.test(p)
+
 /**
  * Right-click target for the audio tag editor: a row that is part of the selection means the whole
  * selection (Explorer's rule), a row outside it means only that row.
+ * `match` widens it to every playable audio file; the default stays mp3 because only mp3 is writable.
  */
-export function audioTargets(path: string | null, sel: string[]): string[] {
-  const isMp3 = (p: string) => /\.mp3$/i.test(p)
-  const selected = [...new Set((sel ?? []).filter((p): p is string => typeof p === 'string' && isMp3(p)))]
-  if (path && isMp3(path) && !selected.includes(path)) return [path]
+export function audioTargets(
+  path: string | null,
+  sel: string[],
+  match: (p: string) => boolean = (p) => /\.mp3$/i.test(p)
+): string[] {
+  const selected = [...new Set((sel ?? []).filter((p): p is string => typeof p === 'string' && match(p)))]
+  if (path && match(path) && !selected.includes(path)) return [path]
   if (selected.length) return selected
-  return path && isMp3(path) ? [path] : []
+  return path && match(path) ? [path] : []
 }

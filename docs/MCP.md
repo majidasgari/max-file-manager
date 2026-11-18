@@ -202,6 +202,11 @@ stream) deliberately gets no MCP tool: playback, seeking and cinema mode are ren
 and FFmpeg preparation is started only by that visible player. Agents use `preview` or
 `open_preview` for the same file; `read_text`/`properties` still cover file inspection.
 
+The music player adds no tool of its own either: it is renderer-only state with one `<audio>`
+element, its playlist is saved in prefs (`musicPlaylist`) and it must stay off unless the user turns
+it on. `command` with `id: "music"` opens or closes the panel through the same `RUN` table the
+`Ctrl+M` shortcut uses, and `prefs_set` with `musicPlayer` switches the module on or off.
+
 ## Storage
 
 `search.db` (SQLite, `~/.config/max-file-manager/`) holds both indexes:

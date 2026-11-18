@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
 import test from 'node:test'
-import {thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
+import {thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
 
 type Entry = {
   name: string
@@ -263,6 +263,13 @@ test('navIndex: grid steps a whole row and a whole page', () => {
   assert.equal(navIndex(2, 'pageDown', 30, 10, 3), 29, 'clamped to the last item')
   assert.equal(navIndex(22, 'pageUp', 30, 10, 3), 0, 'a page up from row 3 lands on the first row')
   assert.equal(navIndex(24, 'pageUp', 30, 10, 3), 0, 'clamped to the first item')
+})
+
+test('sidewaysMove: an RTL grid swaps the horizontal arrows', () => {
+  assert.equal(sidewaysMove('ArrowRight', false), 'right')
+  assert.equal(sidewaysMove('ArrowLeft', false), 'left')
+  assert.equal(sidewaysMove('ArrowRight', true), 'left', 'the first cell sits on the right')
+  assert.equal(sidewaysMove('ArrowLeft', true), 'right')
 })
 
 test('opensInEditor: text and extensionless files, never folders or binaries', () => {

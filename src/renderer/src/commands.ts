@@ -20,6 +20,7 @@ export type CommandId =
   | 'refresh'
   | 'up'
   | 'previewPane'
+  | 'music'
   | 'gallery'
   | 'flat'
   | 'dupes'
@@ -79,6 +80,7 @@ export const COMMANDS: CommandDef[] = [
   { id: 'refresh', label: 'تازه‌سازی', key: 'Ctrl+R', group: 'view' },
   { id: 'up', label: 'پوشهٔ بالاتر', key: 'Backspace', group: 'view' },
   { id: 'previewPane', label: 'پیش‌نمایش', key: 'F3', group: 'view', short: 'پیش‌نمایش' },
+  { id: 'music', label: 'پخش‌کنندهٔ موسیقی', key: 'Ctrl+M', group: 'view', short: 'موسیقی' },
   { id: 'gallery', label: 'گالری', key: 'Space', group: 'view' },
   { id: 'flat', label: 'فهرست تخت', key: 'Ctrl+Shift+F', group: 'view' },
   { id: 'dupes', label: 'فایل‌های تکراری', key: 'Ctrl+Shift+D', group: 'view' },

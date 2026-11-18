@@ -1339,6 +1339,11 @@ export function Preferences({
               )}
               {row(t('حلقه‌ای بودن گالری'), t('در آخرین عکس به اولی برگردد'), check(prefs.galleryLoop, 'galleryLoop'))}
               {row(
+                t('پخش‌کنندهٔ موسیقی'),
+                t('پلی‌لیست در پنل پیش‌نمایش؛ خاموش = این ماژول هیچ بخشی بار نمی‌کند و حافظه نمی‌گیرد'),
+                check(prefs.musicPlayer, 'musicPlayer')
+              )}
+              {row(
                 t('سقف پیش‌نمایش متن'),
                 t('کیلوبایت؛ فایل بزرگ‌تر بریده می‌شود'),
                 <div className="inline-field">

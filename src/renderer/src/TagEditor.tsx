@@ -156,8 +156,8 @@ export function TagEditor({ paths, onSave, onClose }: Props) {
           icon={<AudioIcon size={17} />}
           title={
             single
-              ? t('برچسب‌های صوتی —')
-              : t('برچسب‌های صوتی — {n} فایل', { n: fa(paths.length) })
+              ? t('برچسب‌های صوتی')
+              : t('برچسب‌های صوتی ({n} فایل)', { n: fa(paths.length) })
           }
           sub={single && paths[0] ? baseName(paths[0]) : undefined}
           subTitle={single ? paths[0] : undefined}

@@ -187,6 +187,10 @@ export type AudioWriteResult = { done: number; errors: string[]; warnings?: stri
 export type Tags = {
   title?: string
   artist?: string
+  /** main's ID3 reader sends these too, the panel only shows some of them */
+  albumArtist?: string
+  genre?: string
+  composer?: string
   album?: string
   year?: string
   track?: string

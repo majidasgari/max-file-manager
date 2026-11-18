@@ -58,6 +58,7 @@ import { BookmarkBar } from './BookmarkBar'
 import { profileUri } from '../../shared/remote-profile.ts'
 import { pairKey } from '../../shared/sync.ts'
 import { COMMANDS, type CommandId } from './commands'
+import { addMusic, bindMusicSave, closeMusic, disposeMusic, loadMusic, musicState, openMusicPanel } from './music'
 import { appModifier, matchAccel } from './keys'
 import { BLANK_TEMPLATE, NEW_CATEGORIES, NEW_FILE_TEMPLATES, type NewIconName } from './newTemplates.ts'
 import {
@@ -71,6 +72,7 @@ import {
   modeString,
   cleanMarkNames,
   isArchiveName,
+  isAudioFile,
   isIgnoredName,
   isImage,
   isRemotePath,
@@ -86,6 +88,7 @@ import {
   reorderItem,
   remoteProtocolLabel,
   remoteRootLabel,
+  sidewaysMove,
   terminalDir,
   typeLabel,
   type GroupKey,
@@ -426,6 +429,16 @@ export default function App() {
   }
 
   const systemDark = useSystemDark()
+  // The music player owns its own store; saving the playlist is the only prefs write it needs.
+  useEffect(() => {
+    bindMusicSave((paths) => updatePrefs({ musicPlaylist: paths }))
+  })
+  // Off means off: the store gives back its <audio> and playlist, and no UI chunk is loaded.
+  useEffect(() => {
+    if (prefs.musicPlayer) loadMusic(prefs.musicPlaylist)
+    else disposeMusic()
+    // the saved list is read when the module is switched on, not on every prefs write
+  }, [prefs.musicPlayer])
   const theme: 'dark' | 'light' =
     prefs.theme === 'system' ? (systemDark ? 'dark' : 'light') : prefs.theme
   const setTheme = (t: Prefs['theme'] | ((cur: Prefs['theme']) => Prefs['theme'])) =>
@@ -2383,6 +2396,21 @@ export default function App() {
         if (targets.length) setTagEdit({ paths: targets })
         break
       }
+      case 'musicAdd': {
+        const files = audioTargets(path, me.sel, isAudioFile)
+        if (!files.length) break
+        // the first right-click turns the module on; it stays off (and allocates nothing) until then
+        if (!prefs.musicPlayer) {
+          updatePrefs({ musicPlayer: true })
+          // bring the saved list back first, so the new files join it instead of replacing it
+          loadMusic(prefs.musicPlaylist)
+        }
+        addMusic(files)
+        setPreviewPath(path)
+        setPreviewOn(true)
+        setNote(t('{n} فایل به پلی‌لیست موسیقی اضافه شد', { n: fa(files.length) }))
+        break
+      }
       case 'presets':
         setPresetsOpen(true)
         break
@@ -2727,6 +2755,8 @@ export default function App() {
       icon: <PlayIcon />,
       children: openWithChildren
     }
+    // every playable format, not just the writable mp3: this feeds the music player's playlist
+    const musicSel = remoteHere ? [] : audioTargets(path, me.sel, isAudioFile)
 
     const entryMenu: MenuItem[] = [
       { id: 'open', label: entry?.dir ? t('باز کردن') : t('اجرا کردن'), icon: <PlayIcon /> },
@@ -2741,6 +2771,19 @@ export default function App() {
         : []),
       openWithItem,
       { id: 'preview', label: t('پیش‌نمایش'), icon: <PreviewIcon /> },
+      ...(musicSel.length
+        ? [
+            {
+              id: 'musicAdd',
+              label: prefs.musicPlayer
+                ? musicSel.length > 1
+                  ? t('افزودن به پلی‌لیست موسیقی ({n})', { n: fa(musicSel.length) })
+                  : t('افزودن به پلی‌لیست موسیقی')
+                : t('پخش‌کنندهٔ موسیقی — افزودن و پخش'),
+              icon: <AudioIcon />
+            } as MenuItem
+          ]
+        : []),
       { id: 'properties', label: t('ویژگی‌ها…'), key: 'Alt+Enter', icon: <InfoIcon /> },
       ...(entry?.dir && !remoteHere
         ? [
@@ -3196,6 +3239,13 @@ export default function App() {
     refresh: () => void load(active, tabOf(panes![active])),
     up: () => up(active),
     previewPane: togglePreview,
+    music: () => {
+      // the command doubles as the switch: it turns the module on and shows the panel
+      if (!prefs.musicPlayer) updatePrefs({ musicPlayer: true })
+      if (musicState().open) closeMusic()
+      else openMusicPanel()
+      setPreviewOn(true)
+    },
     gallery: () => openGallery(active),
     flat: () => void runFlat(active),
     dupes: () => void runDupes(active),
@@ -3539,11 +3589,21 @@ export default function App() {
         moveSel(move, ev.shiftKey)
         return
       }
-      if (appModifier(ev) && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
+      // ←/→ walk the cells of a grid/compact pane; a list keeps them free (Alt+←/→ is history).
+      const sideways = (key: string): NavMove =>
+        sidewaysMove(key as 'ArrowLeft' | 'ArrowRight', document.documentElement.dir === 'rtl')
+      const sideKey = ev.key === 'ArrowLeft' || ev.key === 'ArrowRight'
+      if (!appModifier(ev) && sideKey && viewOf(active) !== 'list') {
+        ev.preventDefault()
+        typedBuf.current = ''
+        moveSel(sideways(ev.key), ev.shiftKey)
+        return
+      }
+      if (appModifier(ev) && sideKey) {
         // in a grid the arrows walk the cells; in a list they do what Krusader does: up / open
         if (viewOf(active) !== 'list') {
           ev.preventDefault()
-          moveSel(ev.key === 'ArrowLeft' ? 'left' : 'right', ev.shiftKey)
+          moveSel(sideways(ev.key), ev.shiftKey)
           return
         }
         ev.preventDefault()

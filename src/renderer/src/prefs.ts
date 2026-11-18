@@ -133,6 +133,10 @@ export type Prefs = {
   slideshowSec: number
   galleryLoop: boolean
   previewMaxKB: number
+  /** embedded music player + playlist in the preview panel; off by default, and off means nothing is created */
+  musicPlayer: boolean
+  /** playlist written only when the user presses save in the player */
+  musicPlaylist: string[]
   /** named window layouts (Opus «Layouts/Styles») */
   layouts: Record<string, NamedLayout>
   /** named name filters shown in the presets dialog */
@@ -340,6 +344,8 @@ export const DEFAULTS: Prefs = {
   slideshowSec: 3,
   galleryLoop: true,
   previewMaxKB: 200,
+  musicPlayer: false,
+  musicPlaylist: [],
   layouts: {},
   filters: {},
   fileTypes: {},
@@ -665,6 +671,14 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
       typeof p.previewMaxKB === 'number' && p.previewMaxKB >= 16 && p.previewMaxKB <= 8192
         ? Math.round(p.previewMaxKB)
         : 200,
+    musicPlayer: p.musicPlayer === true,
+    musicPlaylist: Array.isArray(p.musicPlaylist)
+      ? p.musicPlaylist
+          .filter(
+            (x): x is string => typeof x === 'string' && (x.startsWith('/') || /^[A-Za-z]:[\\/]/.test(x))
+          )
+          .slice(0, 5000)
+      : [],
     layouts: normalLayouts(p.layouts),
     filters: normalFilters(p.filters),
     fileTypes: normalFileTypes(p.fileTypes),
