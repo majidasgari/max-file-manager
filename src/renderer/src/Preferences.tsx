@@ -58,11 +58,11 @@ type Page =
 /** Persian stays the key here; the nav translates at render so a language switch applies at once. */
 const PAGES: { id: Page; label: string }[] = [
   { id: 'appearance', label: 'ظاهر و رنگ' },
+  { id: 'layout', label: 'پنجره و چیدمان' },
   { id: 'display', label: 'نمایش فایل‌ها' },
   { id: 'columns', label: 'ستون‌ها' },
   { id: 'toolbar', label: 'نوار ابزار' },
   { id: 'keys', label: 'کلید میان‌بر' },
-  { id: 'layout', label: 'پنجره و چیدمان' },
   { id: 'agents', label: 'ایجنت‌ها (MCP)' },
   { id: 'search', label: 'جست‌وجو' },
   { id: 'filetypes', label: 'انواع فایل' },
@@ -458,6 +458,18 @@ export function Preferences({
                     onChange={(e) => onChange({ rounded: e.target.checked })}
                   />
                 </label>
+              )}
+              {row(
+                t('شکل تب‌ها'),
+                t('کلاسیک = تب‌های چسبیده به نوار، قرصی = هر تب یک قرص جدا'),
+                seg(
+                  prefs.tabShape,
+                  [
+                    { v: 'classic', label: t('کلاسیک') },
+                    { v: 'pill', label: t('قرصی') }
+                  ],
+                  'tabShape'
+                )
               )}
               {row(
                 t('دکمه‌های پنجره'),

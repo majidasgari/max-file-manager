@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { hashFile, hashMany } from './hash.ts'
-import { docxText, preview, xlsxSharedStrings, xlsxSheetText } from './preview.ts'
+import { preview } from './preview.ts'
 
 const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), 'mfm-prev-'))
 
@@ -43,6 +43,15 @@ test('preview: long text is capped and says so', async () => {
   assert.equal(p.text!.length, 200 * 1024)
 })
 
+test('preview: office documents get no preview at all', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mfm-office-'))
+  const file = path.join(dir, 'a.docx')
+  await fs.writeFile(file, 'not really a zip')
+  const p = await preview(file)
+  assert.equal(p.kind, 'binary')
+  assert.equal('text' in p ? p.text : '', '')
+})
+
 test('hash: sha256 is stable and a missing file returns null', async () => {
   const root = await tmp()
   const f = path.join(root, 'x.txt')
@@ -55,39 +64,4 @@ test('hash: sha256 is stable and a missing file returns null', async () => {
   const many = await hashMany([f, path.join(root, 'nope')])
   assert.equal(many.length, 2)
   assert.equal(many[1].hash, null)
-})
-
-test('docxText: paragraphs, table cells, entities — and none of the plumbing', () => {
-  const xml = `<?xml version="1.0"?><w:document xmlns:w="x"><w:body>
-    <w:p><w:r><w:t>سلام</w:t></w:r><w:r><w:t xml:space="preserve"> دنیا</w:t></w:r></w:p>
-    <w:p><w:r><w:t>خط دوم</w:t><w:br/><w:t>ادامه</w:t></w:r></w:p>
-    <w:tbl><w:tr>
-      <w:tc><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc>
-      <w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc>
-    </w:tr></w:tbl>
-    <w:p><w:r><w:instrText>PAGE</w:instrText><w:delText>حذف</w:delText><w:t>&amp; &lt;x&gt;</w:t></w:r></w:p>
-  </w:body></w:document>`
-
-  const text = docxText(xml)
-
-  assert.equal(text.includes('<w:'), false, 'no tags leak')
-  assert.equal(text.includes('PAGE'), false, 'field codes are dropped')
-  assert.equal(text.includes('حذف'), false, 'deleted text is dropped')
-  assert.match(text, /سلام دنیا/)
-  assert.match(text, /خط دوم\nادامه/, 'a hard break starts a new line')
-  assert.match(text, /a\tb/, 'table cells are columns, not separate lines')
-  assert.match(text, /& <x>/)
-})
-
-test('xlsx: shared strings are resolved and rows become tab-separated lines', () => {
-  const shared = xlsxSharedStrings(
-    '<sst><si><t>نام</t></si><si><r><t>مبل</t></r><r><t>غ</t></r></si></sst>'
-  )
-  assert.deepEqual(shared, ['نام', 'مبلغ'])
-  const sheet =
-    '<worksheet><sheetData>' +
-    '<row><c t="s"><v>0</v></c><c t="s"><v>1</v></c></row>' +
-    '<row><c><v>12</v></c><c><v>3400</v></c></row>' +
-    '</sheetData></worksheet>'
-  assert.equal(xlsxSheetText(sheet, shared), 'نام\tمبلغ\n12\t3400')
 })

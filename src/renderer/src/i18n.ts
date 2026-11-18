@@ -441,6 +441,11 @@ const EN: Record<string, string> = {
   'کنار تب جاری': 'Next to the current tab',
   'انتهای نوار': 'End of the strip',
   'بستن تب با کلیک وسط': 'Close tabs with the middle click',
+  'شکل تب‌ها': 'Tab shape',
+  'کلاسیک = تب‌های چسبیده به نوار، قرصی = هر تب یک قرص جدا':
+    'Classic = tabs joined to the strip, pill = each tab a separate rounded chip',
+  کلاسیک: 'Classic',
+  قرصی: 'Pill',
   'تأیید حذف': 'Confirm deletes',
   'حذف به سطل به‌عنوان پیش‌فرض': 'Trash by default',
   'تک‌نمونه': 'Single instance',
@@ -1592,12 +1597,15 @@ const EN: Record<string, string> = {
   'ذخیرهٔ پلی‌لیست': 'Save playlist',
   'پلی‌لیست ذخیره شد': 'Playlist saved',
   'پاک کردن': 'Clear',
+  'پاک کردن پلی‌لیست': 'Clear the playlist',
   'افزودن به پلی‌لیست موسیقی': 'Add to music playlist',
   'افزودن به پلی‌لیست موسیقی ({n})': 'Add to music playlist ({n})',
   'موسیقی': 'Music',
   'قطعهٔ {n}': 'Track {n}',
   'پخش‌کنندهٔ موسیقی — افزودن و پخش': 'Music player — add and play',
-  '{n} فایل به پلی‌لیست موسیقی اضافه شد': 'Added {n} files to the music playlist'
+  '{n} فایل به پلی‌لیست موسیقی اضافه شد': 'Added {n} files to the music playlist',
+  'در این پلی‌لیست قطعهٔ محلی نبود': 'That playlist holds no local track',
+  '{n} قطعه از پلی‌لیست بارگذاری شد': 'Loaded {n} track(s) from the playlist'
 }
 
 export function t(key: string, vars?: Record<string, string | number>): string {

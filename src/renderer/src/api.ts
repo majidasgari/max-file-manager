@@ -389,7 +389,7 @@ export type FolderMeta = {
     group?: 'none' | 'name' | 'type' | 'size' | 'date' | 'ext'
   } | null
 }
-export type PreviewKind = 'dir' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'office' | 'binary'
+export type PreviewKind = 'dir' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'binary'
 export type Preview = {
   kind: PreviewKind
   size: number

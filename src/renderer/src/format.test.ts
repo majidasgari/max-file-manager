@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
 import test from 'node:test'
-import {errText, childPathIn, thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
+import {clock, seekTarget, errText, childPathIn, thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, parsePlaylist, isPlaylistName, normalizePath, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
 
 type Entry = {
   name: string
@@ -425,6 +425,38 @@ test('openAction: the «Run» preference beats the HTML preview and the built-in
   assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'gallery', { virtual: true }), 'external')
 })
 
+test('parsePlaylist reads local tracks and skips the rest', () => {
+  const text = [
+    '#EXTM3U',
+    '#EXTINF:123,Artist - Title',
+    'a.mp3',
+    '',
+    '../b.mp3',
+    '/abs/c.mp3',
+    'http://example.com/stream.mp3',
+    'a.mp3',
+    'C:\\music\\d.mp3'
+  ].join('\r\n')
+  assert.deepEqual(parsePlaylist(text, '/home/u/pl'), [
+    '/home/u/pl/a.mp3',
+    '/home/u/b.mp3',
+    '/abs/c.mp3',
+    'C:\\music\\d.mp3'
+  ])
+  assert.equal(isPlaylistName('x.M3U8'), true)
+  assert.equal(isPlaylistName('x.m3u8.bak'), false)
+  assert.equal(normalizePath('/a/b/../c'), '/a/c')
+  assert.equal(normalizePath('/a//b/./c'), '/a/b/c')
+})
+
+test('openAction sends a playlist to the player only when the module is on', () => {
+  const pl = e('list.m3u8', false, 100, 0, 'm3u8')
+  assert.equal(openAction(pl, 'open', { playlist: true }), 'playlist')
+  assert.equal(openAction(pl, 'open', { playlist: true, hasDefaultApp: true }), 'playlist')
+  assert.equal(openAction(pl, 'open', { playlist: true, virtual: true }), 'external')
+  assert.equal(openAction(pl, 'open'), 'external')
+})
+
 test('terminalDir: a folder is itself, a file is its folder, an archive means the real parent', () => {
   assert.equal(terminalDir('/home/me/projects', true, null, '/home/me'), '/home/me/projects')
   assert.equal(terminalDir('/home/me/projects/a.txt', false, null, '/home/me'), '/home/me/projects')
@@ -610,4 +642,14 @@ test('coming out of a folder selects it in the parent listing', () => {
   assert.equal(childPathIn('', '/a/b'), null)
   assert.equal(childPathIn('C:\\a\\b', 'C:\\a\\b\\c'), 'C:\\a\\b\\c')
   assert.equal(childPathIn('C:\\a\\b', 'D:\\x'), null)
+})
+
+test('clock and seekTarget', () => {
+  assert.equal(clock(0), '00:00')
+  assert.equal(clock(75.9), '01:15')
+  assert.equal(clock(3725), '1:02:05')
+  assert.equal(clock(Number.NaN), '00:00')
+  assert.equal(seekTarget(-5, 300), 0)
+  assert.equal(seekTarget(999, 300), 300)
+  assert.equal(seekTarget(42, Number.NaN), 0)
 })

@@ -290,19 +290,6 @@ export function PreviewPanel({
                 title={entry.name}
               />
             )}
-            {data?.kind === 'office' && (
-              <div className="preview-text" dir="auto">
-                {(data.text ?? '').split('\n').slice(0, 4000).map((ln, n) => (
-                  <div className="pline" key={n}>
-                    <span className="pln">{n + 1}</span>
-                    <span
-                      className="ptext"
-                      dangerouslySetInnerHTML={{ __html: ln ? highlightCode(ln, 'xml') : ' ' }}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
             {data?.kind === 'audio' && (
               <audio
                 className="preview-media"

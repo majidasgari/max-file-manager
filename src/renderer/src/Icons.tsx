@@ -276,6 +276,12 @@ export const TrashIcon = ({ size = 15 }: { size?: number }) => (
     <path d="M4 7h16M9.5 7V4.8h5V7M6.5 7l1 13h9l1-13" />
   </S>
 )
+export const SaveIcon = ({ size = 15 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+    <path d="M17 21v-8H7v8M7 3v5h8" />
+  </svg>
+)
 export const CopyIcon = ({ size = 15 }: { size?: number }) => (
   <S size={size}>
     <rect x="8.5" y="8.5" width="11" height="11" rx="2" />

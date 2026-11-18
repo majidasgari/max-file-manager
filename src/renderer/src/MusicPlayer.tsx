@@ -1,8 +1,8 @@
 import { useSyncExternalStore, useEffect, useState } from 'react'
 import { t } from './i18n.ts'
 import { api, type Tags } from './api'
-import { baseName, fa } from './format'
-import { AudioIcon, ForwardIcon, PauseIcon, PlayIcon, RewindIcon, TrashIcon, XIcon } from './Icons'
+import { baseName, clock, fa } from './format'
+import { AudioIcon, ForwardIcon, PauseIcon, PlayIcon, RewindIcon, SaveIcon, TrashIcon, XIcon } from './Icons'
 import {
   clearMusic,
   closeMusic,
@@ -10,6 +10,7 @@ import {
   playAt,
   removeMusic,
   saveMusic,
+  seekMusic,
   stepMusic,
   subscribeMusic,
   toggleMusic
@@ -63,10 +64,42 @@ export function MusicPlayer({ onNote }: { onNote?(msg: string): void }) {
           {now || t('پلی‌لیست خالی است')}
         </span>
         <span className="dim">{t('{n} قطعه', { n: fa(m.items.length) })}</span>
+        <button
+          className="tb"
+          title={t('ذخیرهٔ پلی‌لیست')}
+          onClick={() => {
+            saveMusic()
+            onNote?.(t('پلی‌لیست ذخیره شد'))
+          }}
+        >
+          <SaveIcon size={13} />
+        </button>
+        <button className="tb" title={t('پاک کردن پلی‌لیست')} onClick={clearMusic}>
+          <TrashIcon size={13} />
+        </button>
         <button className="tb" title={t('بستن پخش‌کننده')} onClick={closeMusic}>
           <XIcon size={12} />
         </button>
       </div>
+
+      {current && (
+        <div className="music-seek-line">
+          <input
+            className="music-seek"
+            type="range"
+            min={0}
+            max={Math.max(0.01, m.dur)}
+            step={0.1}
+            value={Math.min(m.pos, Math.max(0.01, m.dur))}
+            disabled={!m.dur}
+            aria-label={t('موقعیت پخش')}
+            onChange={(ev) => seekMusic(Number(ev.currentTarget.value))}
+          />
+          <span className="music-time">
+            {fa(clock(m.pos))} / {fa(clock(m.dur))}
+          </span>
+        </div>
+      )}
 
       <div className="music-list">
         {/* shortcut: rows are not virtualised, swap to windowing if a playlist of thousands shows up */}
@@ -126,21 +159,6 @@ export function MusicPlayer({ onNote }: { onNote?(msg: string): void }) {
       )}
 
       {m.error && <div className="dim">{t('پخش این فایل ممکن نشد')}</div>}
-
-      <div className="music-foot">
-        <button
-          className="btn"
-          onClick={() => {
-            saveMusic()
-            onNote?.(t('پلی‌لیست ذخیره شد'))
-          }}
-        >
-          {t('ذخیرهٔ پلی‌لیست')}
-        </button>
-        <button className="btn ghost" onClick={clearMusic}>
-          {t('پاک کردن')}
-        </button>
-      </div>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { api, type PlayerChapter, type PlayerSubtitle } from './api'
 import { t } from './i18n.ts'
-import { fa } from './format'
+import { clock, fa } from './format'
 import {
   CameraIcon,
   ExitFullscreenIcon,
@@ -31,16 +31,6 @@ type Props = {
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
-
-const clock = (seconds: number): string => {
-  const s = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  const mm = String(m).padStart(2, '0')
-  const ss = String(sec).padStart(2, '0')
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
 
 const typingTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false

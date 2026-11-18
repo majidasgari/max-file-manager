@@ -92,6 +92,8 @@ export type Prefs = {
   /** physical side of the caption buttons */
   titlebarSide: 'left' | 'right'
   rounded: boolean
+  /** tab shape: joined-to-the-strip tabs (classic) or separate rounded pills */
+  tabShape: 'classic' | 'pill'
   layout: Layout
   sidebar: 'docked' | 'float'
   sidebarOpen: boolean
@@ -318,6 +320,7 @@ export const DEFAULTS: Prefs = {
   titlebarButtons: 'default',
   titlebarSide: 'right',
   rounded: true,
+  tabShape: 'classic',
   layout: 'dual',
   sidebar: 'docked',
   sidebarOpen: true,
@@ -624,6 +627,7 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
         : 'default',
     titlebarSide: p.titlebarSide === 'left' ? 'left' : 'right',
     rounded: p.rounded !== false,
+    tabShape: p.tabShape === 'pill' ? 'pill' : 'classic',
     layout: p.layout === 'single' ? 'single' : 'dual',
     sidebar: p.sidebar === 'float' ? 'float' : 'docked',
     sidebarOpen: p.sidebarOpen !== false,

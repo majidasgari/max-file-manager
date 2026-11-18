@@ -59,7 +59,7 @@ import { BookmarkBar } from './BookmarkBar'
 import { profileUri } from '../../shared/remote-profile.ts'
 import { pairKey } from '../../shared/sync.ts'
 import { COMMANDS, type CommandId } from './commands'
-import { addMusic, bindMusicSave, closeMusic, disposeMusic, loadMusic, musicState, openMusicPanel } from './music'
+import { addMusic, bindMusicSave, closeMusic, disposeMusic, loadMusic, musicState, openMusicPanel, openMusicPlaylist } from './music'
 import { appModifier, matchAccel, systemShortcut } from './keys'
 import { BLANK_TEMPLATE, NEW_CATEGORIES, NEW_FILE_TEMPLATES, type NewIconName } from './newTemplates.ts'
 import {
@@ -87,6 +87,7 @@ import {
   openAction,
   opensInEditor,
   orderEntries,
+  parsePlaylist,
   reorderItem,
   remoteProtocolLabel,
   remoteRootLabel,
@@ -587,6 +588,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.sidebarTone = String(prefs.sidebarTone || 1)
   }, [prefs.sidebarTone])
+
+  useEffect(() => {
+    document.documentElement.dataset.tabShape = prefs.tabShape
+  }, [prefs.tabShape])
 
   useEffect(() => {
     if (!marks.length) {
@@ -1585,6 +1590,23 @@ export default function App() {
     setEditor(p)
   }
 
+  /** A playlist file with the music module on: read it, fill the panel and play. */
+  const openPlaylistFile = async (path: string) => {
+    const r = await api.readText(path)
+    if ('error' in r) {
+      setNote(r.error)
+      return
+    }
+    const tracks = parsePlaylist(r.text, dirOf(path))
+    if (!tracks.length) {
+      setNote(t('در این پلی‌لیست قطعهٔ محلی نبود'))
+      return
+    }
+    openMusicPlaylist(tracks)
+    setPreviewOn(true)
+    setNote(t('{n} قطعه از پلی‌لیست بارگذاری شد', { n: fa(tracks.length) }))
+  }
+
   /** F4 and the context menu: images belong in the gallery, everything else in the editor. */
   const editOrGallery = (i: number, p: string) => {
     const e = entryOf(i, p)
@@ -1657,13 +1679,15 @@ export default function App() {
     }
     const action = openAction(e, prefs.doubleClick, {
       hasDefaultApp: !!prefs.defaultApps[e.ext],
-      virtual: !!panes?.[i].archive
+      virtual: !!panes?.[i].archive,
+      playlist: prefs.musicPlayer
     })
     if (action === 'navigate') go(i, e.path)
     else if (action === 'archive') void openArchive(i, e.path)
     else if (action === 'preview') openPreview(e.path)
     else if (action === 'gallery') openGallery(i, e.path)
     else if (action === 'editor') openEditor(e.path)
+    else if (action === 'playlist') void openPlaylistFile(e.path)
     else openExternal(e.path)
   }
 

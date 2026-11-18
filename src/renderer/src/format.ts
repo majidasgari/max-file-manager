@@ -93,6 +93,21 @@ export function fmtDate(ms: number, format: DateFormat = 'iso', seconds = false)
   return fa(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${time}`)
 }
 
+/** mm:ss, or h:mm:ss past an hour; non-finite/negative reads as 00:00 */
+export const clock = (seconds: number): string => {
+  const s = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(sec).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+/** a seek target clamped into 0..dur; 0 when the duration is unknown yet */
+export const seekTarget = (sec: number, dur: number): number =>
+  Number.isFinite(dur) && dur > 0 ? Math.min(dur, Math.max(0, sec)) : 0
+
 export type PermLevel = 'rw' | 'r' | 'none'
 
 const PERM_SHIFT = [6, 3, 0]
@@ -370,7 +385,14 @@ export const sidewaysMove = (key: 'ArrowLeft' | 'ArrowRight', rtl: boolean): Nav
 export const isArchiveName = (name: string): boolean =>
   /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tbz2)$/i.test(name)
 
-export type OpenAction = 'navigate' | 'external' | 'archive' | 'preview' | 'gallery' | 'editor'
+export type OpenAction =
+  | 'navigate'
+  | 'external'
+  | 'archive'
+  | 'preview'
+  | 'gallery'
+  | 'editor'
+  | 'playlist'
 
 /**
  * What a double-click on an entry should do.
@@ -382,9 +404,12 @@ export type OpenAction = 'navigate' | 'external' | 'archive' | 'preview' | 'gall
 export function openAction(
   e: Pick<Entry, 'dir' | 'name' | 'ext' | 'path'>,
   mode: 'open' | 'gallery' | 'preview',
-  opts: { hasDefaultApp?: boolean; virtual?: boolean } = {}
+  opts: { hasDefaultApp?: boolean; virtual?: boolean; playlist?: boolean } = {}
 ): OpenAction {
   if (e.dir) return 'navigate'
+  // ahead of the default app: with the music module on, a playlist belongs to the player, not to
+  // whatever the desktop would launch
+  if (opts.playlist && !opts.virtual && isPlaylistName(e.name)) return 'playlist'
   if (opts.hasDefaultApp) return 'external'
   if (isArchiveName(e.name)) return 'archive'
   if (mode === 'open') return 'external'
@@ -393,6 +418,24 @@ export function openAction(
   if (isImage(e.ext) && mode === 'gallery') return 'gallery'
   if (opensInEditor(e) && !opts.virtual) return 'editor'
   return 'external'
+}
+
+/**
+ * Tracks of an `.m3u`/`.m3u8` playlist: comments and blanks skipped, relative entries resolved
+ * from `dir`, network URLs dropped (the player serves local files only). Order kept, duplicates
+ * dropped because the same track twice is never what was meant.
+ */
+export function parsePlaylist(text: string, dir: string): string[] {
+  const out: string[] = []
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const local = isAbsolutePath(line) || !/^[a-z][a-z0-9+.-]*:/i.test(line)
+    if (!local) continue
+    const full = normalizePath(isAbsolutePath(line) ? line : joinPath(dir, line))
+    if (full && !out.includes(full)) out.push(full)
+  }
+  return out
 }
 
 /** POSIX, Windows or remote: parent folder of a path. */
@@ -683,6 +726,32 @@ export function cleanMarkNames(raw: unknown): Record<string, string> {
 
 /** Every extension the preview panel plays as audio (main's `preview.ts` AUDIO set). */
 export const isAudioFile = (p: string): boolean => /\.(mp3|flac|wav|ogg|m4a|opus)$/i.test(p)
+
+/** Both playlist extensions are the same text format; one parser serves both. */
+export const isPlaylistName = (p: string): boolean => /\.m3u8?$/i.test(p)
+
+/** Collapses `.` and `..` in a local path; a UNC share is returned untouched. */
+export function normalizePath(p: string): string {
+  const s = String(p ?? '')
+  if (s.startsWith('\\\\')) return s
+  const win = /^[A-Za-z]:/.test(s)
+  const sep = s.includes('\\') && !s.includes('/') ? '\\' : '/'
+  const abs = win || s.startsWith(sep)
+  const drive = win ? s.slice(0, 2) : ''
+  const parts = s.slice(drive.length).split(/[\\/]+/)
+  const out: string[] = []
+  for (const seg of parts) {
+    if (!seg || seg === '.') continue
+    if (seg === '..') {
+      if (out.length) out.pop()
+      continue
+    }
+    out.push(seg)
+  }
+  const body = out.join(sep)
+  if (drive) return drive + sep + body
+  return abs ? sep + body : body
+}
 
 /**
  * The direct child of `parent` that lies on the way to `from`, or null when `from` is not below

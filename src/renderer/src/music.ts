@@ -5,7 +5,7 @@
  * pane, selecting another file or unmounting any panel never interrupts playback. Nothing here
  * allocates until something is played, and `disposeMusic` gives it all back when the module is off.
  */
-import { mediaUrl } from './format.ts'
+import { mediaUrl, seekTarget } from './format.ts'
 
 export type Music = {
   /** absolute paths, in playlist order */
@@ -17,9 +17,21 @@ export type Music = {
   open: boolean
   /** the last play() was rejected (missing file, unsupported codec) */
   error: boolean
+  /** playback position in seconds, kept live by the element's timeupdate */
+  pos: number
+  /** track length in seconds, 0 until the metadata arrives */
+  dur: number
 }
 
-export const NO_MUSIC: Music = { items: [], index: -1, playing: false, open: false, error: false }
+export const NO_MUSIC: Music = {
+  items: [],
+  index: -1,
+  playing: false,
+  open: false,
+  error: false,
+  pos: 0,
+  dur: 0
+}
 
 let state: Music = NO_MUSIC
 let audio: HTMLAudioElement | null = null
@@ -73,6 +85,13 @@ const element = (): HTMLAudioElement => {
     audio.addEventListener('play', () => set({ playing: true }))
     audio.addEventListener('pause', () => set({ playing: false }))
     audio.addEventListener('error', () => set({ playing: false, error: true }))
+    audio.addEventListener('timeupdate', () => set({ pos: audio!.currentTime }))
+    audio.addEventListener('loadedmetadata', () =>
+      set({ dur: Number.isFinite(audio!.duration) ? audio!.duration : 0 })
+    )
+    audio.addEventListener('durationchange', () =>
+      set({ dur: Number.isFinite(audio!.duration) ? audio!.duration : 0 })
+    )
   }
   return audio
 }
@@ -81,8 +100,11 @@ export function playAt(index: number): void {
   const path = state.items[index]
   if (!path) return
   const el = element()
-  if (index !== state.index || !el.src) el.src = mediaUrl(path)
-  set({ index, open: true, error: false })
+  // Only a real source change resets the clock: replaying the loaded track keeps its known
+  // duration, since `loadedmetadata` would not fire again for the same `src`.
+  const changed = index !== state.index || !el.src
+  if (changed) el.src = mediaUrl(path)
+  set({ index, open: true, error: false, ...(changed ? { pos: 0, dur: 0 } : {}) })
   void el.play().catch(() => set({ playing: false, error: true }))
 }
 
@@ -96,12 +118,28 @@ export function stepMusic(step: number): void {
   if (next >= 0) playAt(next)
 }
 
+/** Jumps inside the loaded track; ignored until the duration is known. */
+export function seekMusic(sec: number): void {
+  if (!audio || !state.dur) return
+  const at = seekTarget(sec, state.dur)
+  audio.currentTime = at
+  set({ pos: at })
+}
+
 /** Appends and starts the first track when nothing was loaded yet. */
 export function addMusic(paths: string[]): void {
   const items = addTracks(state.items, paths)
   const empty = state.index < 0
   set({ items, open: true })
   if (empty && items.length) playAt(0)
+}
+
+/** Replaces the list with a playlist file's tracks (not saved) and starts the first one. */
+export function openMusicPlaylist(paths: string[]): void {
+  const items = addTracks([], paths)
+  if (!items.length) return
+  set({ items, index: -1, open: true, error: false, pos: 0, dur: 0 })
+  playAt(0)
 }
 
 export function removeMusic(index: number): void {
