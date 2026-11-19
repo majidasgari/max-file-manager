@@ -5,9 +5,17 @@ import os from 'node:os'
 import path from 'node:path'
 import { parseRemote } from '../shared/remote-path.ts'
 import type { RemoteFs } from './remote-core.ts'
-import { applyPlan, compareTrees, createOps, localOps, walkTree } from './sync-engine.ts'
+import { applyPlan, compareSubset, compareTrees, createOps, localOps, walkTree } from './sync-engine.ts'
 import { decryptFile, encryptFile, generateKeypair } from './sync-crypt.ts'
-import { invertPlan, nextBaseline, planRows, threeWay, type Baseline } from './sync-core.ts'
+import {
+  invertPlan,
+  nextBaseline,
+  nextBaselineSubset,
+  planRows,
+  threeWay,
+  type Baseline
+} from './sync-core.ts'
+import type { SyncRow } from '../shared/sync.ts'
 
 async function temp(prefix = 'mfm-sync-'): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix))
@@ -417,4 +425,93 @@ test('encryption: an encrypted source is decrypted into a plaintext destination'
 test('createOps: a remote path without a remote adapter is refused instead of treated as local', async () => {
   const ops = createOps(undefined)
   await assert.rejects(() => ops.stat('sftp://host/x'), /remote support is not available/)
+})
+
+test('compareSubset: changed, unchanged and cloud-deleted paths only', async () => {
+  const left = await temp()
+  const right = await temp()
+  try {
+    const t = Date.now() - 120_000
+    await write(left, 'changed.txt', 'new', t + 10_000)
+    await write(right, 'changed.txt', 'old', t)
+    await write(left, 'same.txt', 'S', t)
+    await write(right, 'same.txt', 'S', t)
+    await write(left, 'gone.txt', 'G', t)
+    const cmp = await compareSubset(left, right, localOps(), ['changed.txt', 'same.txt', 'gone.txt'])
+    const by = new Map(cmp.rows.map((r) => [r.rel, r.state]))
+    assert.equal(by.get('changed.txt'), 'leftNewer')
+    assert.equal(by.get('same.txt'), 'same')
+    assert.equal(by.get('gone.txt'), 'leftOnly')
+    assert.equal(cmp.leftCount, 3)
+    assert.equal(cmp.rightCount, 2)
+    assert.equal(cmp.hashed, 0)
+    assert.equal(cmp.capped, false)
+
+    // only the two differing paths become actions; the unchanged row is skipped
+    const plan = planRows(cmp.rows, 'ltr')
+    assert.deepEqual(plan.copy.map((a) => a.rel).sort(), ['changed.txt', 'gone.txt'])
+    assert.deepEqual(plan.remove, [])
+  } finally {
+    await fs.rm(left, { recursive: true, force: true })
+    await fs.rm(right, { recursive: true, force: true })
+  }
+})
+
+test('compareSubset: known right-side metadata means no ops.stat on the right', async () => {
+  const left = await temp()
+  const right = path.join(left, 'right')
+  try {
+    const t = Date.now() - 120_000
+    await write(left, 'same.txt', 'S', t)
+    await write(left, 'changed.txt', 'new', t + 10_000)
+    let rightStats = 0
+    const base = localOps()
+    const ops = {
+      ...base,
+      stat: async (p: string) => {
+        if (p.startsWith(right)) {
+          rightStats++
+          return null
+        }
+        return base.stat(p)
+      }
+    }
+    const rightByRel = new Map<string, { size: number; mtime: number; dir: boolean }>([
+      ['same.txt', { size: 1, mtime: t, dir: false }],
+      ['changed.txt', { size: 3, mtime: t, dir: false }],
+      ['cloudonly.txt', { size: 2, mtime: t, dir: false }]
+    ])
+    const cmp = await compareSubset(left, right, ops, [...rightByRel.keys()], { rightByRel })
+    assert.equal(rightStats, 0)
+    const by = new Map(cmp.rows.map((r) => [r.rel, r.state]))
+    assert.equal(by.get('same.txt'), 'same')
+    assert.equal(by.get('changed.txt'), 'leftNewer')
+    assert.equal(by.get('cloudonly.txt'), 'rightOnly')
+    assert.equal(cmp.leftCount, 2)
+    assert.equal(cmp.rightCount, 3)
+  } finally {
+    await fs.rm(left, { recursive: true, force: true })
+  }
+})
+
+test('nextBaselineSubset: untouched baseline keys survive a one-row incremental run', () => {
+  const t = Date.now()
+  const baseline: Baseline = {
+    'a.txt': { size: 1, mtime: t, dir: false },
+    'b.txt': { size: 2, mtime: t, dir: false },
+    'c/d.txt': { size: 3, mtime: t, dir: false }
+  }
+  const rows: SyncRow[] = [
+    {
+      rel: 'a.txt',
+      state: 'same',
+      left: { size: 1, mtime: t, dir: false },
+      right: { size: 1, mtime: t, dir: false }
+    }
+  ]
+  const plan = planRows(rows, 'both')
+  const next = nextBaselineSubset(rows, baseline, plan)
+  assert.deepEqual(Object.keys(next).sort(), ['a.txt', 'b.txt', 'c/d.txt'])
+  assert.deepEqual(next['b.txt'], baseline['b.txt'])
+  assert.deepEqual(next['c/d.txt'], baseline['c/d.txt'])
 })

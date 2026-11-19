@@ -13,6 +13,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { remoteJoin } from './cloud-core.ts'
 import { countedBody } from './cloud-client.ts'
+import type { CloudNode } from './cloud-changes.ts'
 
 export type DavConfig = { base: string; user: string; pass: string }
 
@@ -205,6 +206,74 @@ const encodePath = (p: string): string =>
     .map((seg) => encodeURIComponent(seg))
     .join('/')
 
+/**
+ * WebDAV has no change feed, so the whole tree has to come from a single `Depth: infinity`
+ * PROPFIND. Both limits matter: a NAS answers for seconds and some servers stream tens of
+ * thousands of entries, and a partial tree must never seed an adoption pass.
+ */
+const FLATTEN_MAX_NODES = 5_000
+const FLATTEN_BUDGET_MS = 60_000
+
+/**
+ * Parse a multi-status that may go several levels deep (`Depth: infinity`). Every `<response>`
+ * below the requested folder becomes a node whose `rel` is its path from there. Rows outside the
+ * requested subtree are ignored, so a server that answers with the whole share cannot smuggle in
+ * unrelated files. WebDAV entries have no provider id; the relative path is the id.
+ */
+export function parseTree(
+  xml: string,
+  basePath: string,
+  opts: { prefix?: string; origin?: string } = {}
+): CloudNode[] {
+  const base = noSlash(decodeHref(basePath))
+  const prefix = (opts.prefix ?? '').replace(/\/+$/, '')
+  const origin = opts.origin ?? 'https://dav.invalid'
+  const relative = (pathname: string): string => {
+    const p = noSlash(decodeHref(pathname))
+    if (!prefix) return p
+    if (p === prefix) return '/'
+    if (!p.startsWith(prefix + '/')) return p
+    return p.slice(prefix.length) || '/'
+  }
+  /** With a configured base URL, anything outside its path is not part of this account. */
+  const withinPrefix = (pathname: string): boolean => {
+    const p = noSlash(decodeHref(pathname))
+    return !prefix || p === prefix || p.startsWith(prefix + '/')
+  }
+  const out: CloudNode[] = []
+  for (const block of responseBlocks(xml)) {
+    const hrefRaw = tagText(block, 'href')
+    if (!hrefRaw) continue
+    let pathname: string
+    try {
+      pathname = new URL(unescapeXml(hrefRaw.trim()), origin).pathname
+    } catch {
+      continue
+    }
+    if (!withinPrefix(pathname)) continue
+    const href = relative(pathname)
+    if (href === base) continue
+    if (!href.startsWith(base === '/' ? '/' : base + '/')) continue
+    const rel = href.slice(base === '/' ? 1 : base.length + 1)
+    if (!rel) continue
+    const dir = /<(?:[\w-]+:)?collection\s*\/?>/i.test(tagText(block, 'resourcetype') ?? '')
+    const len = Number(tagText(block, 'getcontentlength') ?? '')
+    const when = Date.parse(tagText(block, 'getlastmodified') ?? '')
+    const etag = tagText(block, 'getetag')
+    out.push({
+      id: rel,
+      rel,
+      parentId: rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null,
+      name: rel.slice(rel.lastIndexOf('/') + 1),
+      dir,
+      size: Number.isFinite(len) && len >= 0 ? len : 0,
+      mtime: Number.isFinite(when) ? when : 0,
+      ...(etag ? { etag: unescapeXml(etag).replace(/^W\//, '').replace(/^"|"$/g, '') } : {})
+    })
+  }
+  return out
+}
+
 export type DavClient = ReturnType<typeof createDav>
 
 export function createDav(config: DavConfig, impl: typeof fetch = fetch) {
@@ -226,7 +295,7 @@ export function createDav(config: DavConfig, impl: typeof fetch = fetch) {
   const request = async (
     method: string,
     p: string,
-    init: { headers?: Record<string, string>; body?: string; depth?: string; timeoutMs?: number } = {}
+    init: { headers?: Record<string, string>; body?: string; depth?: '0' | '1' | 'infinity'; timeoutMs?: number } = {}
   ): Promise<Response> => {
     const headers: Record<string, string> = { Authorization: auth, ...(init.headers ?? {}) }
     if (init.depth) headers.Depth = init.depth
@@ -253,11 +322,16 @@ export function createDav(config: DavConfig, impl: typeof fetch = fetch) {
     return res
   }
 
-  const propfind = async (p: string, depth: '0' | '1'): Promise<string> => {
+  const propfind = async (
+    p: string,
+    depth: '0' | '1' | 'infinity',
+    timeoutMs?: number
+  ): Promise<string> => {
     const res = await request('PROPFIND', p, {
       depth,
       headers: { 'Content-Type': 'application/xml; charset=utf-8' },
-      body: PROPFIND_BODY
+      body: PROPFIND_BODY,
+      ...(timeoutMs ? { timeoutMs } : {})
     })
     return res.text()
   }
@@ -285,6 +359,29 @@ export function createDav(config: DavConfig, impl: typeof fetch = fetch) {
     async list(p: string): Promise<DavEntry[]> {
       const xml = await propfind(p, '1')
       return parseMultistatus(xml, p, { prefix })
+    },
+
+    /**
+     * The whole subtree in one PROPFIND. A server that rejects `Depth: infinity`, sends an empty
+     * body or gets cut off by the budget yields `capped: true`: the adoption pass must not run on
+     * a partial tree, because every missing node would look «local only» and be uploaded again.
+     */
+    async flatten(p: string): Promise<{ nodes: CloudNode[]; capped: boolean }> {
+      const started = Date.now()
+      let xml: string
+      try {
+        xml = await propfind(p, 'infinity', FLATTEN_BUDGET_MS)
+      } catch {
+        // 4xx/5xx, a timeout or a server that refuses Depth: infinity all mean «no full list»
+        return { nodes: [], capped: true }
+      }
+      if (Date.now() - started > FLATTEN_BUDGET_MS) return { nodes: [], capped: true }
+      // an empty body is not «an empty folder»: a 207 always carries at least the folder itself
+      if (!xml.trim() || !/<(?:[\w-]+:)?multistatus\b/i.test(xml)) {
+        return { nodes: [], capped: true }
+      }
+      const nodes = parseTree(xml, p, { prefix })
+      return { nodes: nodes.slice(0, FLATTEN_MAX_NODES), capped: nodes.length > FLATTEN_MAX_NODES }
     },
 
     async mkdir(p: string): Promise<void> {

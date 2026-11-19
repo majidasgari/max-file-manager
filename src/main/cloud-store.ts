@@ -21,6 +21,10 @@ type RuntimeStored = {
   conflicts: string[]
   failures: number
   dirty: boolean
+  /** Drive change feed cursor; null means the next run is a full scan */
+  pageToken: string | null
+  /** when the node tree was last rebuilt from a complete scan (unix ms) */
+  fullScanAt: number | null
 }
 
 type StoreShape = {
@@ -74,7 +78,12 @@ function shape(raw: unknown): StoreShape {
         lastError: typeof r.lastError === 'string' ? r.lastError.slice(0, 400) : null,
         conflicts: Array.isArray(r.conflicts) ? r.conflicts.filter((x) => typeof x === 'string').slice(0, 500) : [],
         failures: typeof r.failures === 'number' && r.failures >= 0 ? Math.min(20, Math.floor(r.failures)) : 0,
-        dirty: r.dirty === true
+        dirty: r.dirty === true,
+        pageToken: typeof r.pageToken === 'string' && r.pageToken ? r.pageToken.slice(0, 2048) : null,
+        fullScanAt:
+          typeof r.fullScanAt === 'number' && Number.isFinite(r.fullScanAt) && r.fullScanAt > 0
+            ? r.fullScanAt
+            : null
       }
     }
   }
@@ -183,7 +192,15 @@ export function hasSecret(id: string): boolean {
 
 export function runtimeOf(id: string): RuntimeStored {
   return (
-    db().runtime[id] ?? { lastRunAt: null, lastError: null, conflicts: [], failures: 0, dirty: false }
+    db().runtime[id] ?? {
+      lastRunAt: null,
+      lastError: null,
+      conflicts: [],
+      failures: 0,
+      dirty: false,
+      pageToken: null,
+      fullScanAt: null
+    }
   )
 }
 

@@ -653,6 +653,7 @@ export type Api = {
       remoteLabel?: string
       name?: string
       compareBy?: CloudCompareBy
+      seed?: 'fast' | 'full'
       deleteExtra?: boolean
       intervalMs?: number
       direction?: CloudDirection

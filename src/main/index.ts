@@ -238,6 +238,19 @@ try {
 const boot = bootState()
 const bootPrefs = boot.prefs ?? {}
 
+// Plasma 6 runs kwalletd6 only; Chromium's auto-detected "kwallet" backend looks for the unversioned
+// bus name, comes up unusable, and then every stored secret reads as «not available» — the cloud token
+// (`cloud-store.ts`) and remote passwords (`remotes.ts`). Name the backend the session actually runs
+// before OSCrypt initializes; it is read once, so this has to happen before app ready.
+const kdeVersion = process.env['KDE_SESSION_VERSION']
+if (
+  process.platform === 'linux' &&
+  (kdeVersion === '5' || kdeVersion === '6') &&
+  !process.argv.some((a) => a.startsWith('--password-store'))
+) {
+  app.commandLine.appendSwitch('password-store', `kwallet${kdeVersion}`)
+}
+
 // Dragging a file out of this window needs XWayland: under native Wayland `webContents.startDrag`
 // cannot start (Chromium's Wayland drag controller answers «Failed to get focused window») and the
 // renderer's own drag only offers a uri-list, which other apps read as plain text — no file ever
@@ -310,8 +323,10 @@ app.on('open-file', (e, p) => {
   }
 })
 
-// single instance: a second launch focuses the window and opens the path it was given
-if (bootPrefs.singleInstance !== false && !process.env['SMOKE_SHOT']) {
+// single instance: a second launch focuses the window and opens the path it was given.
+// The portal backend has no window and holds its D-Bus name for the whole session, so the lock must
+// skip it: while it owned the lock every normal launch exited silently and no window ever appeared.
+if (bootPrefs.singleInstance !== false && !process.env['SMOKE_SHOT'] && !portalOnly) {
   if (!app.requestSingleInstanceLock()) {
     // Exit synchronously: app.quit() still let `whenReady` run and bind the MCP port that the
     // first instance owns, which surfaced as EADDRINUSE + a main-process error dialog.

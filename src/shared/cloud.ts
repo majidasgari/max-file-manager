@@ -203,6 +203,8 @@ export type CloudAccount = {
 
 export type CloudDirection = 'both' | 'ltr' | 'rtl'
 export type CloudCompareBy = 'hash' | 'mtime'
+/** The first pass: `fast` adopts equal-size pairs, `full` compares every file for real. */
+export type CloudSeed = 'fast' | 'full'
 
 export type CloudBinding = {
   id: string
@@ -216,6 +218,11 @@ export type CloudBinding = {
   remoteLabel: string
   direction: CloudDirection
   compareBy: CloudCompareBy
+  /**
+   * `fast` treats an equal size on both sides as the same file during the one-time adoption pass;
+   * `full` never adopts and lets the normal comparison decide every path.
+   */
+  seed: CloudSeed
   /** propagate deletions to the other side; both sides must be recoverable for this to be safe */
   deleteExtra: boolean
   intervalMs: number
@@ -417,6 +424,7 @@ export function cleanCloudBinding(raw: unknown): CloudBinding | null {
   const direction: CloudDirection =
     b.direction === 'ltr' || b.direction === 'rtl' ? b.direction : 'both'
   const compareBy: CloudCompareBy = b.compareBy === 'mtime' ? 'mtime' : 'hash'
+  const seed: CloudSeed = b.seed === 'full' ? 'full' : 'fast'
   const createdAt = typeof b.createdAt === 'number' && Number.isFinite(b.createdAt) ? b.createdAt : Date.now()
   return {
     id,
@@ -427,6 +435,7 @@ export function cleanCloudBinding(raw: unknown): CloudBinding | null {
     remoteLabel: text(b.remoteLabel, 2048) || remoteId,
     direction,
     compareBy,
+    seed,
     deleteExtra: b.deleteExtra === true,
     intervalMs: cleanCloudInterval('webdav', b.intervalMs),
     enabled: b.enabled !== false,

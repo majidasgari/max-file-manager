@@ -60,6 +60,7 @@ type Props = {
   clouds?: CloudView
   onCloud?(binding: CloudBinding): void
   onManageClouds?(): void
+  onCloudMenu?(binding: CloudBinding, x: number, y: number): void
 }
 
 export function Sidebar({
@@ -100,7 +101,8 @@ export function Sidebar({
   onSyncJob,
   clouds,
   onCloud,
-  onManageClouds
+  onManageClouds,
+  onCloudMenu
 }: Props) {
   const [dragMarkIdx, setDragMarkIdx] = useState<number | null>(null)
   /** path of the bookmark whose title is being edited inline */
@@ -534,7 +536,16 @@ export function Sidebar({
           const account = clouds.accounts.find((a) => a.id === b.accountId)
           const st = clouds.status.find((s) => s.bindingId === b.id)
           return (
-            <div key={b.id} className="tree-row side-cloud">
+            <div
+              key={b.id}
+              className="tree-row side-cloud"
+              onContextMenu={(ev) => {
+                if (!onCloudMenu) return
+                ev.preventDefault()
+                ev.stopPropagation()
+                onCloudMenu(b, ev.clientX, ev.clientY)
+              }}
+            >
               <span className="twisty" />
               <div className="side-cloud-body">
                 <button

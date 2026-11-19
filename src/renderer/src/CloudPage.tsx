@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, type CloudBinding, type CloudView } from './api'
 import { CLOUD_PROVIDERS, MINUTE, cloudProvider, type CloudProviderId } from '../../shared/cloud.ts'
 import { t } from './i18n.ts'
-import { errText, fa, fmtSize } from './format'
+import { errText, fa, fmtSize, dirOf, joinPath } from './format'
 import { CloudIcon, FolderIcon, PlayIcon, PlusIcon, TrashIcon } from './Icons'
 import { CloudDialog } from './CloudDialog'
 import {
@@ -65,6 +65,18 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
     refresh()
   }
 
+  /**
+   * «قطع اتصال» on the last binding of an account also forgets the account (and its keyring
+   * sign-in): an account without bindings would otherwise stay behind with no way to reach it.
+   */
+  const disconnect = async (b: CloudBinding): Promise<void> => {
+    await api.cloud.bindingRemove(b.id)
+    const after = await api.cloud.list()
+    if (!after.bindings.some((x) => x.accountId === b.accountId)) await api.cloud.accountRemove(b.accountId)
+    refresh()
+    onChanged()
+  }
+
   const statusOf = (id: string) => view?.status.find((s) => s.bindingId === id)
   const accountOf = (id: string) => view?.accounts.find((a) => a.id === id)
 
@@ -104,6 +116,11 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
               <span className="hint" style={{ margin: 0 }}>
                 {bindingSubtitle(st?.state ?? 'idle', st?.lastRunAt ?? null, st?.conflicts.length ?? 0)}
               </span>
+              {b.seed === 'fast' && (
+                <span className="hint" style={{ margin: 0 }}>
+                  {t('پذیرش سریع')}
+                </span>
+              )}
             </div>
             <div className="cloud-path" dir="ltr">
               {b.localPath}
@@ -163,9 +180,25 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
               </div>
             )}
             {!!st?.conflicts.length && (
-              <div className="hint" dir="auto">
-                {fa(st.conflicts.length)} {t('تعارض حل‌نشده')}: {st.conflicts.slice(0, 4).join(', ')}
-                {st.conflicts.length > 4 ? ' …' : ''}
+              <div className="cloud-conflicts">
+                <div className="hint" style={{ margin: 0 }}>
+                  {fa(st.conflicts.length)} {t('تعارض حل‌نشده')} ·{' '}
+                  {t('هر دو طرف بعد از آخرین همگام‌سازی عوض شده‌اند؛ موتور هیچ‌کدام را روی دیگری نمی‌نویسد.')}
+                </div>
+                <ul>
+                  {st.conflicts.map((rel) => (
+                    <li key={rel}>
+                      <button
+                        className="btn ghost"
+                        dir="ltr"
+                        title={joinPath(b.localPath, rel)}
+                        onClick={() => onOpenFolder(dirOf(joinPath(b.localPath, rel)))}
+                      >
+                        <FolderIcon size={12} /> {rel}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             <div className="cloud-bind-actions">
@@ -178,15 +211,7 @@ export function CloudPage({ activeDir, onOpenFolder, onChanged }: Props) {
               <button className="btn ghost" onClick={() => onOpenFolder(b.localPath)}>
                 <FolderIcon size={12} /> {t('پوشه')}
               </button>
-              <button
-                className="btn ghost"
-                onClick={() => {
-                  void api.cloud.bindingRemove(b.id).then(() => {
-                    refresh()
-                    onChanged()
-                  })
-                }}
-              >
+              <button className="btn ghost" onClick={() => void disconnect(b)}>
                 <TrashIcon size={12} /> {t('قطع اتصال')}
               </button>
             </div>

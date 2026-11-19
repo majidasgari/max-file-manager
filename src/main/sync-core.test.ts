@@ -4,8 +4,10 @@ import {
   invertPlan,
   ignored,
   ignoredBy,
+  localDrift,
   matchesIgnore,
   nextBaseline,
+  nextBaselineSubset,
   planRows,
   sameSide,
   sortRows,
@@ -13,7 +15,8 @@ import {
   summarize,
   threeWay,
   type Baseline,
-  type BaselineRow
+  type BaselineRow,
+  type LocalFile
 } from './sync-core.ts'
 import type { SyncRow, SyncSide } from '../shared/sync.ts'
 
@@ -69,6 +72,75 @@ test('stateOf: newest wins, equal timestamps with a size change are ambiguous', 
 test('sameSide: hash mode ignores timestamps', () => {
   assert.equal(sameSide(file(10, 1, 'aa'), file(10, 9_999_999, 'aa'), 'hash'), true)
   assert.equal(sameSide(file(10, 1, 'aa'), file(10, 1, 'bb'), 'hash'), false)
+})
+
+test('localDrift: new, size, mtime, deletion and type change; unchanged stays out', () => {
+  const base: Baseline = {
+    same: { size: 10, mtime: 1_000, dir: false },
+    near: { size: 10, mtime: 1_000, dir: false },
+    size: { size: 10, mtime: 1_000, dir: false },
+    time: { size: 10, mtime: 1_000, dir: false },
+    deleted: { size: 10, mtime: 1_000, dir: false },
+    folder: { size: 0, mtime: 1_000, dir: true },
+    turned: { size: 10, mtime: 1_000, dir: false }
+  }
+  const files = new Map<string, LocalFile>([
+    ['same', { size: 10, mtime: 2_500, dir: false }],
+    // exactly SAME_MTIME_MS apart is still «the same moment»
+    ['near', { size: 10, mtime: 3_000, dir: false }],
+    ['size', { size: 11, mtime: 1_000, dir: false }],
+    ['time', { size: 10, mtime: 3_001, dir: false }],
+    ['folder', { size: 0, mtime: 9_999, dir: true }],
+    ['turned', { size: 10, mtime: 1_000, dir: true }],
+    ['new', { size: 1, mtime: 5_000, dir: false }]
+  ])
+  assert.deepEqual(localDrift(files, base), ['deleted', 'new', 'size', 'time', 'turned'])
+})
+
+test('threeWay with an adopted baseline compares by size+dir, not mtime', () => {
+  const base: Baseline = { file: { size: 100, mtime: 111, dir: false, adopted: true } }
+  const same = threeWay(
+    [{ rel: 'file', state: 'rightNewer', left: file(100, 999), right: file(100, 123) }],
+    base,
+    'mtime'
+  )
+  assert.equal(same[0].state, 'same')
+  assert.equal(same[0].conflict, undefined)
+
+  const left = threeWay(
+    [{ rel: 'file', state: 'sizeDiff', left: file(101, 999), right: file(100, 123) }],
+    base,
+    'mtime'
+  )
+  assert.equal(left[0].state, 'leftNewer')
+
+  const right = threeWay(
+    [{ rel: 'file', state: 'sizeDiff', left: file(100, 999), right: file(101, 123) }],
+    base,
+    'mtime'
+  )
+  assert.equal(right[0].state, 'rightNewer')
+})
+
+test('nextBaseline keeps adopted only while the path is same and its size did not change', () => {
+  const previous: Baseline = { keep: { size: 5, mtime: 1, dir: false, adopted: true } }
+  const rows: SyncRow[] = [
+    { rel: 'keep', state: 'same', left: file(5, 999), right: file(5, 12) },
+    { rel: 'grown', state: 'same', left: file(6, 999), right: file(6, 12) }
+  ]
+  previous.grown = { size: 5, mtime: 1, dir: false, adopted: true }
+  const next = nextBaseline(rows, previous, planRows(rows, 'both'))
+  assert.equal(next.keep.adopted, true)
+  assert.equal(next.grown.adopted, undefined)
+  assert.equal(next.grown.size, 6)
+
+  // the incremental subset path must not have a second, different rule
+  const subset = nextBaselineSubset(
+    [{ rel: 'keep', state: 'same', left: file(5, 999), right: file(5, 12) }],
+    previous,
+    planRows([], 'both')
+  )
+  assert.equal(subset.keep.adopted, true)
 })
 
 test('threeWay without a baseline: same, one-sided rows, and both-new is a conflict', () => {

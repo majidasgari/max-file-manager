@@ -24,7 +24,13 @@ export type SyncState =
 export type ConflictKind = 'bothChanged' | 'editDelete' | 'bothNew' | 'typeDiff'
 
 /** One side of one row. `hash` is filled only when the comparison asked for it. */
-export type SyncSide = { size: number; mtime: number; dir: boolean; hash?: string }
+export type SyncSide = { size: number; mtime: number; dir: boolean; hash?: string; adopted?: boolean }
+
+/**
+ * A row of the two-way baseline. `adopted` marks a one-time size-only match (Drive adoption), so a
+ * later comparison ignores the timestamp for that path until its size changes.
+ */
+export type BaselineRow = SyncSide
 
 export type SyncRow = {
   rel: string

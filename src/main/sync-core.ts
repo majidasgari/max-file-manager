@@ -10,6 +10,7 @@
  *   which is the only way to tell «deleted on the left» from «new on the right».
  */
 import type {
+  BaselineRow,
   ConflictKind,
   SyncAction,
   SyncCompareBy,
@@ -21,8 +22,11 @@ import type {
   SyncState
 } from '../shared/sync.ts'
 
-export type BaselineRow = { size: number; mtime: number; dir: boolean; hash?: string }
+export type { BaselineRow }
 export type Baseline = Record<string, BaselineRow>
+
+/** One row of the local tree as the drift check sees it: no hash, no network. */
+export type LocalFile = { size: number; mtime: number; dir: boolean }
 
 /** Files that belong to the app, not to the synced content. */
 export const SYNC_SKIP_NAMES = new Set(['.mfm.json', '.mfm-versions', '.mfm-trash', '.mfm-restic'])
@@ -88,6 +92,34 @@ export function ignoredBy(
 
 const sameMoment = (a: number, b: number): boolean => Math.abs(a - b) <= SAME_MTIME_MS
 
+/**
+ * Paths whose local state no longer matches the baseline. Pure and network-free: the caller walks
+ * the disk once and this only reads the map. A baseline key that is missing from `files` is a local
+ * deletion and is reported too, because the comparison must see it to decide what happened.
+ */
+export function localDrift(files: Map<string, LocalFile>, baseline: Baseline): string[] {
+  const out: string[] = []
+  for (const [rel, file] of files) {
+    const base = baseline[rel]
+    if (!base) {
+      out.push(rel)
+      continue
+    }
+    if (base.dir !== file.dir) {
+      out.push(rel)
+      continue
+    }
+    // a folder has no content of its own; only its type/identity matters here
+    if (file.dir) continue
+    if (base.size !== file.size || !sameMoment(base.mtime, file.mtime)) out.push(rel)
+  }
+  for (const rel of Object.keys(baseline)) if (!files.has(rel)) out.push(rel)
+  return out.sort()
+}
+
+/** Size+type equality, the only test an adopted baseline is allowed to use (no timestamps). */
+const sameBySize = (a: SyncSide, b: SyncSide): boolean => a.dir === b.dir && (a.dir || a.size === b.size)
+
 export function sameSide(a: SyncSide, b: SyncSide, by: SyncCompareBy): boolean {
   if (a.dir !== b.dir) return false
   if (a.dir) return true
@@ -142,13 +174,23 @@ export function threeWay(rows: SyncRow[], baseline: Baseline, by: SyncCompareBy)
       } else out.push(row)
       continue
     }
-    const b: SyncSide = { size: base.size, mtime: base.mtime, dir: base.dir, hash: base.hash }
+    const b: SyncSide = {
+      size: base.size,
+      mtime: base.mtime,
+      dir: base.dir,
+      hash: base.hash,
+      ...(base.adopted === true ? { adopted: true } : {})
+    }
+    // An adopted anchor was written when the two sides were known to be the same file but their
+    // timestamps were not comparable (Drive's `modifiedTime` is the upload time). Equality with
+    // that anchor is size+type only; otherwise every later run would see a phantom edit.
+    const eq = base.adopted === true ? sameBySize : (x: SyncSide, y: SyncSide) => sameSide(x, y, by)
     const left = row.left
     const right = row.right
     if (left && right) {
-      const lEqB = sameSide(left, b, by)
-      const rEqB = sameSide(right, b, by)
-      const lEqR = sameSide(left, right, by)
+      const lEqB = eq(left, b)
+      const rEqB = eq(right, b)
+      const lEqR = eq(left, right)
       if (left.dir !== right.dir) out.push({ ...row, state: 'conflict', conflict: 'typeDiff', baseline: b })
       else if (lEqR) out.push({ ...row, state: 'same', baseline: b })
       else if (lEqB) out.push({ ...row, state: 'rightNewer', baseline: b })
@@ -157,12 +199,12 @@ export function threeWay(rows: SyncRow[], baseline: Baseline, by: SyncCompareBy)
       continue
     }
     if (left && !right) {
-      if (sameSide(left, b, by)) out.push({ ...row, state: 'leftOnly', baseline: b })
+      if (eq(left, b)) out.push({ ...row, state: 'leftOnly', baseline: b })
       else out.push({ ...row, state: 'conflict', conflict: 'editDelete', baseline: b })
       continue
     }
     if (!left && right) {
-      if (sameSide(right, b, by)) out.push({ ...row, state: 'rightOnly', baseline: b })
+      if (eq(right, b)) out.push({ ...row, state: 'rightOnly', baseline: b })
       else out.push({ ...row, state: 'conflict', conflict: 'editDelete', baseline: b })
       continue
     }
@@ -321,12 +363,56 @@ export function nextBaseline(rows: SyncRow[], previous: Baseline, plan: SyncPlan
       continue
     }
     if (row.state === 'same' && row.left) {
-      out[row.rel] = { size: row.left.size, mtime: row.left.mtime, dir: row.left.dir, hash: row.left.hash }
+      const prev = previous[row.rel]
+      const keepAdopted = prev?.adopted === true && prev.size === row.left.size
+      out[row.rel] = {
+        size: row.left.size,
+        mtime: row.left.mtime,
+        dir: row.left.dir,
+        hash: row.left.hash,
+        ...(keepAdopted ? { adopted: true } : {})
+      }
     }
   }
   // a path that disappeared from both sides leaves the baseline too
   const present = new Set(rows.map((r) => r.rel))
   for (const rel of Object.keys(out)) if (!present.has(rel)) delete out[rel]
+  return out
+}
+
+/**
+ * The baseline after an incremental (subset) run. `rows` is only the dirty subset, so the «delete
+ * every path that is not in rows» step of `nextBaseline` must not run here: it would destroy the
+ * anchor of every path this run did not even look at. Only keys present in `rows` are updated or
+ * removed; everything else stays exactly as it was.
+ */
+export function nextBaselineSubset(rows: SyncRow[], previous: Baseline, plan: SyncPlan): Baseline {
+  const out: Baseline = { ...previous }
+  const copyFrom = new Map(plan.copy.map((a) => [a.rel, a.from]))
+  const removed = new Set(plan.remove.map((a) => a.rel))
+  for (const row of rows) {
+    if (removed.has(row.rel)) {
+      delete out[row.rel]
+      continue
+    }
+    const from = copyFrom.get(row.rel)
+    if (from) {
+      const side = from === 'left' ? row.left : row.right
+      if (side) out[row.rel] = { size: side.size, mtime: side.mtime, dir: side.dir, hash: side.hash }
+      continue
+    }
+    if (row.state === 'same' && row.left) {
+      const prev = previous[row.rel]
+      const keepAdopted = prev?.adopted === true && prev.size === row.left.size
+      out[row.rel] = {
+        size: row.left.size,
+        mtime: row.left.mtime,
+        dir: row.left.dir,
+        hash: row.left.hash,
+        ...(keepAdopted ? { adopted: true } : {})
+      }
+    }
+  }
   return out
 }
 

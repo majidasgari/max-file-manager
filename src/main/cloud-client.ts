@@ -6,6 +6,9 @@
 import { createReadStream, createWriteStream } from 'node:fs'
 import { Readable, Transform } from 'node:stream'
 import type { ReadableStream as WebReadable } from 'node:stream/web'
+// a type-only cycle: `cloud-changes.ts` imports the change-page shape from here, and this file
+// needs the node shape to describe `flatten`. Erased at runtime, so nothing circular is loaded.
+import type { CloudNode } from './cloud-changes.ts'
 
 export type CloudEntry = {
   name: string
@@ -19,6 +22,22 @@ export type CloudEntry = {
 
 export type CloudStat = { size: number; mtime: number; dir: boolean; etag?: string }
 
+/** One entry from a provider's change feed, already flattened to the fields the tree needs. */
+export type CloudChange = {
+  id: string
+  removed: boolean
+  /** شناسهٔ والد در سمت ارائه‌دهنده؛ برای فایل حذف‌شده null */
+  parentId: string | null
+  name: string
+  dir: boolean
+  size: number
+  mtime: number
+  /** md5 در Drive */
+  etag?: string
+}
+
+export type CloudChangePage = { changes: CloudChange[]; nextToken: string; newStartToken?: string }
+
 export type CloudClient = {
   stat(p: string): Promise<CloudStat | null>
   list(p: string): Promise<CloudEntry[]>
@@ -28,6 +47,29 @@ export type CloudClient = {
   download(p: string, dest: string, onBytes?: (n: number) => void): Promise<void>
   upload(src: string, p: string, mtime?: number, onBytes?: (n: number) => void): Promise<void>
   test?(): Promise<{ ok: true; detail: string }>
+  /**
+   * Optional incremental feed. A provider without it is still compared by walking the whole tree,
+   * so adding these two methods never breaks an adapter.
+   */
+  startToken?(): Promise<string>
+  changes?(pageToken: string): Promise<CloudChangePage>
+  /**
+   * Every node below `base` from one paginated provider query instead of one folder request per
+   * level. `capped` means the adapter stopped at its own budget, so the tree is incomplete and must
+   * not seed an adoption pass. A provider without it simply cannot use the fast first run.
+   */
+  flatten?(base: string): Promise<{ nodes: CloudNode[]; capped: boolean }>
+  /**
+   * The provider id of the binding root. The change feed addresses entries by id and its records
+   * only become relative paths when the parent chain starts here. Dropbox has no ids, so its
+   * adapter returns the root path and uses paths as ids throughout.
+   */
+  rootKey?(base: string): Promise<string | null>
+  /**
+   * Nodes the full scan already saw through `list`. Drive fills this for free; an adapter without
+   * it pays one `flatten` call when the incremental cursor is seeded.
+   */
+  treeNodes?(base: string): CloudNode[]
 }
 
 export class CloudHttpError extends Error {

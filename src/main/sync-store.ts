@@ -11,6 +11,7 @@ import path from 'node:path'
 import { app } from 'electron'
 import type { SyncCompareBy, SyncMode, SyncPlan, SyncRunState, SyncRunSummary } from '../shared/sync.ts'
 import type { Baseline } from './sync-core.ts'
+import type { CloudNode } from './cloud-changes.ts'
 import { openDb } from './searchdb.ts'
 
 const dbFile = (): string => path.join(app.getPath('userData'), 'search.db')
@@ -46,6 +47,7 @@ function db(): Db {
       mtime REAL NOT NULL,
       dir INTEGER NOT NULL,
       hash TEXT,
+      adopted INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (pair, rel)
     );
     -- a cloud server without a content hash has to be read to be hashed; this table remembers the
@@ -58,7 +60,21 @@ function db(): Db {
       hash TEXT NOT NULL,
       PRIMARY KEY (pair, rel)
     );
+    -- the provider-id tree used by the incremental change feed; clearIndex leaves it alone, just
+    -- like sync_baseline and cloud_hash
+    CREATE TABLE IF NOT EXISTS cloud_nodes (
+      pair TEXT NOT NULL, id TEXT NOT NULL, rel TEXT NOT NULL, parent_id TEXT,
+      name TEXT NOT NULL, dir INTEGER NOT NULL, size INTEGER NOT NULL,
+      mtime INTEGER NOT NULL, etag TEXT, PRIMARY KEY (pair, id)
+    );
   `)
+  // `CREATE TABLE IF NOT EXISTS` does not touch a table that already exists, so a database written
+  // before the adopt flag still has the old five-column shape. The column is additive and defaults
+  // to 0, which is exactly the old «not adopted» behaviour.
+  const columns = d.prepare('PRAGMA table_info(sync_baseline)').all() as { name?: string }[]
+  if (!columns.some((c) => c.name === 'adopted')) {
+    d.exec('ALTER TABLE sync_baseline ADD COLUMN adopted INTEGER NOT NULL DEFAULT 0')
+  }
   return d
 }
 
@@ -161,12 +177,13 @@ export function pruneRuns(keep = 200): void {
 }
 
 export function loadBaseline(pair: string): Baseline {
-  const rows = db().prepare('SELECT rel, size, mtime, dir, hash FROM sync_baseline WHERE pair = ?').all(pair) as {
+  const rows = db().prepare('SELECT rel, size, mtime, dir, hash, adopted FROM sync_baseline WHERE pair = ?').all(pair) as {
     rel: string
     size: number
     mtime: number
     dir: number
     hash: string | null
+    adopted: number | null
   }[]
   const out: Baseline = {}
   for (const row of rows) {
@@ -174,7 +191,8 @@ export function loadBaseline(pair: string): Baseline {
       size: Number(row.size) || 0,
       mtime: Number(row.mtime) || 0,
       dir: Number(row.dir) === 1,
-      ...(row.hash ? { hash: row.hash } : {})
+      ...(row.hash ? { hash: row.hash } : {}),
+      ...(Number(row.adopted) === 1 ? { adopted: true } : {})
     }
   }
   return out
@@ -186,10 +204,10 @@ export function saveBaseline(pair: string, baseline: Baseline): void {
   try {
     d.prepare('DELETE FROM sync_baseline WHERE pair = ?').run(pair)
     const insert = d.prepare(
-      'INSERT INTO sync_baseline (pair, rel, size, mtime, dir, hash) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO sync_baseline (pair, rel, size, mtime, dir, hash, adopted) VALUES (?, ?, ?, ?, ?, ?, ?)'
     )
     for (const [rel, row] of Object.entries(baseline)) {
-      insert.run(pair, rel, Math.round(row.size), row.mtime, row.dir ? 1 : 0, row.hash ?? null)
+      insert.run(pair, rel, Math.round(row.size), row.mtime, row.dir ? 1 : 0, row.hash ?? null, row.adopted === true ? 1 : 0)
     }
     d.exec('COMMIT')
   } catch (e) {
@@ -230,4 +248,94 @@ export function saveCloudHashes(pair: string, cache: Map<string, CloudHashRow>):
 
 export function clearCloudHashes(pair: string): void {
   db().prepare('DELETE FROM cloud_hash WHERE pair = ?').run(pair)
+}
+
+type NodeRow = {
+  id: string
+  rel: string
+  parent_id: string | null
+  name: string
+  dir: number
+  size: number
+  mtime: number
+  etag: string | null
+}
+
+const nodeOf = (row: NodeRow): CloudNode => ({
+  id: row.id,
+  rel: row.rel,
+  parentId: row.parent_id,
+  name: row.name,
+  dir: Number(row.dir) === 1,
+  size: Number(row.size) || 0,
+  mtime: Number(row.mtime) || 0,
+  ...(row.etag ? { etag: row.etag } : {})
+})
+
+export function loadNodes(pair: string): Map<string, CloudNode> {
+  const rows = db()
+    .prepare('SELECT id, rel, parent_id, name, dir, size, mtime, etag FROM cloud_nodes WHERE pair = ?')
+    .all(pair) as NodeRow[]
+  return new Map(rows.map((row) => [row.id, nodeOf(row)]))
+}
+
+const insertNode = (d: Db, pair: string, node: CloudNode): void => {
+  d.prepare(
+    `INSERT INTO cloud_nodes (pair, id, rel, parent_id, name, dir, size, mtime, etag)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(pair, id) DO UPDATE SET
+       rel = excluded.rel, parent_id = excluded.parent_id, name = excluded.name,
+       dir = excluded.dir, size = excluded.size, mtime = excluded.mtime, etag = excluded.etag`
+  ).run(
+    pair,
+    node.id,
+    node.rel,
+    node.parentId,
+    node.name,
+    node.dir ? 1 : 0,
+    Math.round(node.size),
+    Math.round(node.mtime),
+    node.etag ?? null
+  )
+}
+
+export function upsertNodes(pair: string, rows: CloudNode[]): void {
+  if (!rows.length) return
+  const d = db()
+  d.exec('BEGIN')
+  try {
+    for (const node of rows) insertNode(d, pair, node)
+    d.exec('COMMIT')
+  } catch (e) {
+    d.exec('ROLLBACK')
+    throw e
+  }
+}
+
+export function deleteNodeIds(pair: string, ids: string[]): void {
+  if (!ids.length) return
+  const d = db()
+  const remove = d.prepare('DELETE FROM cloud_nodes WHERE pair = ? AND id = ?')
+  d.exec('BEGIN')
+  try {
+    for (const id of ids) remove.run(pair, id)
+    d.exec('COMMIT')
+  } catch (e) {
+    d.exec('ROLLBACK')
+    throw e
+  }
+}
+
+/** Replace the whole tree after a complete full scan, in one transaction. */
+export function replaceNodes(pair: string, rows: CloudNode[]): void {
+  const d = db()
+  d.exec('BEGIN')
+  try {
+    d.prepare('DELETE FROM cloud_nodes WHERE pair = ?').run(pair)
+    for (const node of rows) insertNode(d, pair, node)
+    d.exec('COMMIT')
+  } catch (e) {
+    d.exec('ROLLBACK')
+    throw e
+  }
 }

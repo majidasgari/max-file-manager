@@ -11,9 +11,11 @@ import {
   parentOf,
   countedBody,
   writeBody,
+  type CloudChange,
   type CloudClient,
   type CloudEntry
 } from './cloud-client.ts'
+import type { CloudNode } from './cloud-changes.ts'
 import { remoteJoin } from './cloud-core.ts'
 
 type DbxEntry = {
@@ -27,6 +29,21 @@ type DbxEntry = {
   content_hash?: string
   rev?: string
 }
+
+type DbxList = { entries: DbxEntry[]; cursor: string; has_more: boolean }
+
+/** Dropbox speaks paths, so a node id is the entry's path and the parent id is its folder path. */
+const dropboxId = (e: DbxEntry): string =>
+  normPath(e.path_display ?? `/${e.name}`)
+
+/** The path below the binding root, or null when the entry lives outside it. */
+const relBelow = (base: string, id: string): string | null => {
+  const clean = normPath(base)
+  if (clean === '/') return id.replace(/^\/+/, '') || null
+  if (!id.startsWith(`${clean}/`)) return null
+  return id.slice(clean.length + 1) || null
+}
+
 
 export function createDropbox(access: string, impl: typeof fetch = fetch): CloudClient {
   const api = 'https://api.dropboxapi.com/2'
@@ -72,6 +89,96 @@ export function createDropbox(access: string, impl: typeof fetch = fetch): Cloud
     async test() {
       await client.list('/')
       return { ok: true, detail: 'Dropbox responded' }
+    },
+
+    /**
+     * One recursive listing for the whole binding. `list_folder/continue` pages the same cursor,
+     * so the fast first run costs one request per 2000 nodes instead of one per folder.
+     */
+    async flatten(base) {
+      const clean = normPath(base)
+      let res = await call<DbxList>('/files/list_folder', {
+        path: apiPath(clean),
+        recursive: true,
+        limit: 2000,
+        include_deleted: false
+      })
+      const out: CloudNode[] = []
+      let guard = 0
+      let capped = false
+      for (;;) {
+        for (const e of res.entries) {
+          if (e['.tag'] === 'deleted') continue
+          const id = dropboxId(e)
+          const rel = relBelow(clean, id)
+          if (!rel) continue
+          out.push({
+            id,
+            rel,
+            parentId: parentOf(id),
+            name: nameOf(id),
+            dir: e['.tag'] === 'folder',
+            size: e['.tag'] === 'folder' ? 0 : (e.size ?? 0),
+            mtime: e.server_modified ? Date.parse(e.server_modified) : 0,
+            ...(e.content_hash || e.rev ? { etag: e.content_hash ?? e.rev } : {})
+          })
+        }
+        if (!res.has_more) break
+        if (guard++ > 1000) {
+          // an incomplete list would make the adoption pass treat every missing node as
+          // «local only» and upload the whole other side; the caller must fall back to a walk
+          capped = true
+          break
+        }
+        res = await call<DbxList>('/files/list_folder/continue', { cursor: res.cursor })
+      }
+      return { nodes: out, capped }
+    },
+
+    async rootKey(base) {
+      // paths are the ids here, so the root of the binding is simply its path
+      return normPath(base)
+    },
+
+    /**
+     * The cursor of a recursive root listing is Dropbox's change cursor. One entry is allowed
+     * through (it is already in the seeded tree) so the feed resumes from a real cursor instead of
+     * a hand-built one.
+     */
+    async startToken() {
+      const res = await call<DbxList>('/files/list_folder', {
+        path: '',
+        recursive: true,
+        limit: 1,
+        include_deleted: false
+      })
+      return res.cursor
+    },
+
+    async changes(token) {
+      const changes: CloudChange[] = []
+      let cursor = token
+      let guard = 0
+      for (;;) {
+        const res = await call<DbxList>('/files/list_folder/continue', { cursor })
+        for (const e of res.entries) {
+          const id = dropboxId(e)
+          const removed = e['.tag'] === 'deleted'
+          changes.push({
+            id,
+            removed,
+            parentId: removed ? null : parentOf(id),
+            name: nameOf(id),
+            dir: e['.tag'] === 'folder',
+            size: e['.tag'] === 'folder' ? 0 : (e.size ?? 0),
+            mtime: e.server_modified ? Date.parse(e.server_modified) : 0,
+            ...(e.content_hash || e.rev ? { etag: e.content_hash ?? e.rev } : {})
+          })
+        }
+        cursor = res.cursor
+        if (!res.has_more || guard++ > 1000) break
+      }
+      return { changes, nextToken: cursor }
     },
 
     async stat(p) {

@@ -1,6 +1,6 @@
 import { getLang, setLang, subscribeLang, t } from './i18n.ts'
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { api, type Chrome, type CloudView, type DesktopApp, type DirRef, type Drive, type Entry, type FolderMeta, type Job, type RemoteProfile, type SearchProgress, type SyncJob, type SyncMode, type SyncProgress } from './api'
+import { api, type Chrome, type CloudBinding, type CloudView, type DesktopApp, type DirRef, type Drive, type Entry, type FolderMeta, type Job, type RemoteProfile, type SearchProgress, type SyncJob, type SyncMode, type SyncProgress } from './api'
 import { ContextMenu, type MenuAction, type MenuItem } from './ContextMenu'
 import { DrivesPage } from './DrivesPage'
 import { ArchiveDialog, type ArchiveJob } from './ArchiveDialog'
@@ -298,6 +298,7 @@ export default function App() {
   /** custom bookmark titles (path → title), display-only */
   const [markNames, setMarkNames] = useState<Record<string, string>>({})
   const [markRowMenu, setMarkRowMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+  const [cloudRowMenu, setCloudRowMenu] = useState<{ binding: CloudBinding; x: number; y: number } | null>(null)
   const [markRename, setMarkRename] = useState<{ path: string; tick: number } | null>(null)
   /** bookmark path → folder colour/icon, so the sidebar shows the folder's own glyph */
   const [markIcons, setMarkIcons] = useState<Record<string, { color?: string; icon?: string }>>({})
@@ -3282,6 +3283,23 @@ export default function App() {
     setDiff({ a, b, result: r })
   }
 
+  /**
+   * Removing a cloud: the binding goes first; the account and its keyring entry only when no other
+   * binding still uses it — otherwise a second folder on the same Google Drive would be orphaned.
+   */
+  const removeCloud = async (b: CloudBinding): Promise<void> => {
+    try {
+      await api.cloud.bindingRemove(b.id)
+      const after = await api.cloud.list()
+      if (!after.bindings.some((x) => x.accountId === b.accountId)) await api.cloud.accountRemove(b.accountId)
+      setClouds(await api.cloud.list())
+      setNote(t('ابر حذف شد'))
+    } catch (e) {
+      setNote(String((e as Error)?.message ?? e))
+      void api.cloud.list().then(setClouds, () => undefined)
+    }
+  }
+
   const RUN: Record<CommandId, () => void> = {
     newItem: () => openNewMenu(),
     sync: () => void openSync(),
@@ -3585,7 +3603,7 @@ export default function App() {
         return
       }
       // a modal owns the keyboard: deleting behind the properties sheet would be invisible
-      if (editor || gallery || menu || columnMenu || marksMenu || markRowMenu || sortMenu || settingsOpen || openWith || propsFor || breakdownFor || confirmAsk || syncOpen) return
+      if (editor || gallery || menu || columnMenu || marksMenu || markRowMenu || cloudRowMenu || sortMenu || settingsOpen || openWith || propsFor || breakdownFor || confirmAsk || syncOpen) return
       // the drives page owns its own controls; file-manager shortcuts must not operate on a pane
       // that is currently hidden behind it.
       if (drivesPageOpen) {
@@ -4133,6 +4151,7 @@ export default function App() {
               clouds={clouds ?? undefined}
               onCloud={(b) => go(active, b.localPath)}
               onManageClouds={() => setCloudOpen(true)}
+              onCloudMenu={(b, x, y) => setCloudRowMenu({ binding: b, x, y })}
               drives={prefs.sidebarDrives ? drives : undefined}
               remotes={remotes}
               onRemote={(p) => {
@@ -4485,6 +4504,7 @@ export default function App() {
                 clouds={clouds ?? undefined}
                 onCloud={(b) => go(active, b.localPath)}
                 onManageClouds={() => setCloudOpen(true)}
+                onCloudMenu={(b, x, y) => setCloudRowMenu({ binding: b, x, y })}
                 drives={prefs.sidebarDrives ? drives : undefined}
                 remotes={remotes}
                 onRemote={(p) => {
@@ -5001,6 +5021,22 @@ export default function App() {
             }
           }}
           onClose={() => setMarkRowMenu(null)}
+        />
+      )}
+
+      {cloudRowMenu && (
+        <ContextMenu
+          x={cloudRowMenu.x}
+          y={cloudRowMenu.y}
+          items={[
+            { id: 'cloudRemove', label: t('حذف ابر'), icon: <TrashIcon /> }
+          ]}
+          onPick={(id) => {
+            const b = cloudRowMenu.binding
+            setCloudRowMenu(null)
+            if (id === 'cloudRemove') void removeCloud(b)
+          }}
+          onClose={() => setCloudRowMenu(null)}
         />
       )}
 

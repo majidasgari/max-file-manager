@@ -64,6 +64,7 @@ export function CloudDialog({ activeDir, onClose, onSaved }: Props) {
   const [localPath, setLocalPath] = useState(activeDir)
   const [name, setName] = useState('')
   const [intervalMs, setIntervalMs] = useState(15 * MINUTE)
+  const [seed, setSeed] = useState<'fast' | 'full'>('fast')
   const [deleteExtra, setDeleteExtra] = useState(false)
   const [preview, setPreview] = useState<CloudPreview | null>(null)
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -158,6 +159,7 @@ export function CloudDialog({ activeDir, onClose, onSaved }: Props) {
         remoteLabel: remotePath,
         name: name || remotePath,
         intervalMs,
+        seed,
         deleteExtra
       })
       onSaved(binding)
@@ -200,6 +202,7 @@ export function CloudDialog({ activeDir, onClose, onSaved }: Props) {
     setClientSecret('')
     setLabel('')
     setIntervalMs(p.defaultIntervalMs)
+    setSeed('fast')
     setError('')
     setStep('auth')
   }
@@ -554,6 +557,29 @@ export function CloudDialog({ activeDir, onClose, onSaved }: Props) {
                       ))}
                     </div>
                   </div>
+                </div>
+
+                <div className="cld-field">
+                  <span>{t('حالت اولین همگام‌سازی')}</span>
+                  <div className="cld-seg">
+                    <button
+                      type="button"
+                      className={'cld-segbtn' + (seed === 'fast' ? ' on' : '')}
+                      onClick={() => setSeed('fast')}
+                    >
+                      {t('سینک سریع (پیشنهادی)')}
+                    </button>
+                    <button
+                      type="button"
+                      className={'cld-segbtn' + (seed === 'full' ? ' on' : '')}
+                      onClick={() => setSeed('full')}
+                    >
+                      {t('سینک کامل')}
+                    </button>
+                  </div>
+                  <small>
+                    {t('در حالت سریع، فایلی که در دو طرف اندازهٔ یکسان دارد همگام فرض می‌شود و منتقل نمی‌شود؛ مناسب وقتی این پوشه را قبلاً با ابزار دیگری همگام کرده‌ای.')}
+                  </small>
                 </div>
 
                 <label className={'cld-switch' + (canDelete ? '' : ' off')}>

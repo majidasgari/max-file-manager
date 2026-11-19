@@ -433,6 +433,60 @@ export async function compareTrees(
   }
 }
 
+/**
+ * Compare only the paths an incremental change feed marked dirty. The rows are exactly what
+ * `compareTrees` would produce for those paths (including the three-way rule), so `planRows` and
+ * `applyPlan` stay untouched. A path that vanished from both sides simply produces no row.
+ */
+export async function compareSubset(
+  left: string,
+  right: string,
+  ops: PathOps,
+  rels: string[],
+  opts: {
+    compareBy?: SyncCompareBy
+    twoWay?: boolean
+    baseline?: Baseline
+    /**
+     * Metadata of already known cloud paths, keyed by relative path. When a key is present the
+     * right side is taken from it instead of `ops.stat`, which on Drive would resolve every path
+     * segment with a name query. The left side always comes from disk.
+     */
+    rightByRel?: Map<string, SyncSide>
+    ctl?: SyncControl
+    onProgress?(phase: 'left' | 'right' | 'compare', done: number, current: string): void
+  } = {}
+): Promise<CompareResult> {
+  const by = opts.compareBy ?? 'mtime'
+  const rows: SyncRow[] = []
+  const unique = [...new Set(rels)]
+  let leftCount = 0
+  let rightCount = 0
+  for (let i = 0; i < unique.length; i++) {
+    const rel = unique[i]
+    // a failed stat is «not there», exactly like a walk of a tree that does not contain it
+    const l = await ops.stat(ops.joinRel(left, rel)).catch(() => null)
+    opts.onProgress?.('left', i + 1, rel)
+    const known = opts.rightByRel?.get(rel)
+    const r = known ?? (await ops.stat(ops.joinRel(right, rel)).catch(() => null))
+    opts.onProgress?.('right', i + 1, rel)
+    if (opts.ctl?.cancelled) throw new Error('cancelled')
+    if (l) leftCount++
+    if (r) rightCount++
+    if (!l && !r) continue
+    rows.push(rowOf(rel, l ?? undefined, r ?? undefined, by))
+    opts.onProgress?.('compare', rows.length, rel)
+  }
+  const finalRows = opts.twoWay ? threeWay(rows, opts.baseline ?? {}, by) : rows
+  return {
+    rows: sortRows(finalRows),
+    leftCount,
+    rightCount,
+    capped: false,
+    hashed: 0
+  }
+}
+
 export type ApplyResult = {
   copied: number
   removed: number

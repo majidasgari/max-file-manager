@@ -81,6 +81,10 @@ test('bindings reject a relative local path and keep their remote shape', () => 
   assert.ok(ok)
   assert.equal(ok.localPath, '/home/alice/Docs')
   assert.equal(ok.remoteId, '/Docs')
+  // the fast seed is the default; only an explicit `full` switches it off and garbage falls back
+  assert.equal(ok.seed, 'fast')
+  assert.equal(cleanCloudBinding({ ...binding, seed: 'full' })?.seed, 'full')
+  assert.equal(cleanCloudBinding({ ...binding, seed: 'weird' })?.seed, 'fast')
   assert.equal(cleanCloudBinding({ ...binding, localPath: 'Docs' }), null)
   assert.equal(cleanCloudBinding({ ...binding, remoteId: 'Docs' }), null)
   assert.equal(cleanCloudBinding({ ...binding, remoteId: '/..' })?.remoteId, '/..')

@@ -9,10 +9,10 @@
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import type { RemoteFs } from './remote-core.ts'
-import type { SyncControl } from './sync-engine.ts'
-import { applyPlan, compareTrees, createOps } from './sync-engine.ts'
+import type { CompareResult, SyncControl, Tree } from './sync-engine.ts'
+import { applyPlan, compareSubset, compareTrees, createOps, walkTree } from './sync-engine.ts'
 import { makePlan } from './sync-engine.ts'
-import { nextBaseline } from './sync-core.ts'
+import { localDrift, nextBaseline, nextBaselineSubset, sortRows, stateOf, SYNC_SKIP_NAMES } from './sync-core.ts'
 import { conflictPaths, entryState, entryStates, nextRunAt, ZERO_COUNTS, type EntryStates } from './cloud-core.ts'
 import { cloudOps } from './cloud-engine.ts'
 import { shell } from 'electron'
@@ -20,7 +20,8 @@ import { createDav, davAccountLabel, nextcloudRoot } from './cloud-dav.ts'
 import { createDrive } from './cloud-drive.ts'
 import { createDropbox } from './cloud-dropbox.ts'
 import { createOneDrive } from './cloud-onedrive.ts'
-import type { CloudClient } from './cloud-client.ts'
+import { CloudHttpError, type CloudChangePage, type CloudClient } from './cloud-client.ts'
+import { applyChanges, chooseRunMode, type ChangeOutcome, type CloudNode } from './cloud-changes.ts'
 import { oauthDocs, oauthLogin, oauthRefresh, type OAuthProviderId } from './cloud-oauth.ts'
 import {
   cloudBindings,
@@ -60,9 +61,20 @@ import {
   type CloudView
 } from '../shared/cloud.ts'
 import { cleanRemoteName, remoteJoin } from './cloud-core.ts'
-import { clearCloudHashes, loadBaseline, loadCloudHashes, saveBaseline, saveCloudHashes, type CloudHashRow } from './sync-store.ts'
+import {
+  clearCloudHashes,
+  deleteNodeIds,
+  loadBaseline,
+  loadCloudHashes,
+  loadNodes,
+  replaceNodes,
+  saveBaseline,
+  saveCloudHashes,
+  upsertNodes,
+  type CloudHashRow
+} from './sync-store.ts'
 import { hashFile } from './hash.ts'
-import { pairKey } from '../shared/sync.ts'
+import { pairKey, type SyncCompareBy, type SyncRow, type SyncSide } from '../shared/sync.ts'
 
 export type CloudDeps = {
   remote?: RemoteFs
@@ -106,6 +118,7 @@ export type CloudBindingDraft = {
   remoteLabel?: string
   name?: string
   compareBy?: string
+  seed?: string
   deleteExtra?: boolean
   intervalMs?: number
   direction?: string
@@ -129,6 +142,100 @@ export type CloudPreviewDraft = {
 
 const TICK_MS = 30_000
 const DEBOUNCE_MS = 1_500
+const CAP_MESSAGE = 'مقایسه به سقف رسید؛ نتیجه ناقص است'
+const LIST_CAPPED_MESSAGE = 'فهرست ابر کامل نشد؛ سینک کامل اجرا شد'
+
+const STATE_RANK: Record<CloudEntryState, number> = {
+  synced: 0,
+  pending: 1,
+  localOnly: 2,
+  cloudOnly: 3,
+  conflict: 4,
+  syncing: 5,
+  paused: 5,
+  offline: 5,
+  error: 5
+}
+
+const worseState = (a: CloudEntryState | undefined, b: CloudEntryState): CloudEntryState =>
+  a === undefined || STATE_RANK[b] > STATE_RANK[a] ? b : a
+
+/**
+ * Keep the per-file map of the paths an incremental run did not touch. `entryStates` only knows the
+ * dirty subset, so replacing the whole map would drop the badges (and conflicts) of every other
+ * file in the folder.
+ */
+function mergeEntryStates(
+  previous: EntryStates | undefined,
+  next: EntryStates,
+  rels: string[]
+): EntryStates {
+  if (!previous) return next
+  const files = new Map(previous.files)
+  for (const rel of rels) {
+    const state = next.files.get(rel)
+    if (state) files.set(rel, state)
+    else files.delete(rel)
+  }
+  const dirs = new Map<string, CloudEntryState>()
+  const counts: CloudCounts = { ...ZERO_COUNTS }
+  for (const [rel, state] of files) {
+    counts[state as keyof CloudCounts]++
+    let cur = rel
+    for (;;) {
+      const cut = cur.lastIndexOf('/')
+      if (cut < 0) {
+        dirs.set('', worseState(dirs.get(''), state))
+        break
+      }
+      cur = cur.slice(0, cut)
+      dirs.set(cur, worseState(dirs.get(cur), state))
+    }
+  }
+  return { files, dirs, counts }
+}
+
+/**
+ * Rows for the one-time adoption pass: equal size+type on both sides means «the same file», so its
+ * baseline is marked `adopted` and later comparisons ignore the cloud timestamp. Everything else is
+ * built with the same rules the normal comparison uses; only the equal-size shortcut is new.
+ */
+function adoptionRows(local: Tree, cloud: CloudNode[], by: SyncCompareBy): SyncRow[] {
+  const right = new Map<string, SyncSide>()
+  for (const node of cloud) {
+    // the same app-owned files the normal walk skips; without this the adoption pass would copy
+    // `.mfm.json`/`.mfm-trash` down from Drive just because the local walk never produced them
+    if (node.rel.split('/').some((part) => SYNC_SKIP_NAMES.has(part))) continue
+    right.set(node.rel, {
+      size: node.size,
+      mtime: node.mtime,
+      dir: node.dir,
+      ...(node.etag ? { hash: node.etag } : {})
+    })
+  }
+  const rels = new Set<string>([...local.keys(), ...right.keys()])
+  const rows: SyncRow[] = []
+  for (const rel of [...rels].sort()) {
+    const l = local.get(rel)
+    const r = right.get(rel)
+    // folder-only rows are implicit; a dir↔file clash is a real type difference
+    if (l?.dir || r?.dir) {
+      if (l && r && l.dir !== r.dir) rows.push({ rel, state: 'typeDiff', left: l, right: r })
+      continue
+    }
+    if (l && !r) {
+      rows.push({ rel, state: 'leftOnly', left: l })
+      continue
+    }
+    if (!l && r) {
+      rows.push({ rel, state: 'rightOnly', right: r })
+      continue
+    }
+    if (!l || !r) continue
+    rows.push({ rel, state: l.size === r.size ? 'same' : stateOf(l, r, by), left: l, right: r })
+  }
+  return rows
+}
 
 const liveOf = (id: string): Live => {
   const stored = runtimeOf(id)
@@ -339,7 +446,9 @@ export function createCloudService(deps: CloudDeps) {
   function removeAccount(id: string): void {
     for (const b of bindingsFor(id)) {
       stopBinding(b.id)
-      clearCloudHashes(pairKey(b.localPath, cloudPath(b.id)))
+      const pair = pairKey(b.localPath, cloudPath(b.id))
+      clearCloudHashes(pair)
+      replaceNodes(pair, [])
       states.delete(b.id)
     }
     deleteAccount(id)
@@ -402,6 +511,7 @@ export function createCloudService(deps: CloudDeps) {
       remoteLabel: remoteId,
       direction: 'both',
       compareBy: 'mtime',
+      seed: 'fast',
       deleteExtra: false,
       intervalMs: 900_000,
       enabled: true,
@@ -475,6 +585,7 @@ export function createCloudService(deps: CloudDeps) {
       remoteLabel: draft.remoteLabel || remoteId,
       direction: draft.direction ?? 'both',
       compareBy,
+      seed: draft.seed === 'full' ? 'full' : 'fast',
       deleteExtra: draft.deleteExtra === true,
       intervalMs: cleanCloudInterval(provider?.id ?? 'webdav', draft.intervalMs),
       enabled: true,
@@ -544,7 +655,11 @@ export function createCloudService(deps: CloudDeps) {
   function removeBinding(id: string): void {
     const binding = findBinding(String(id ?? ''))
     stopBinding(String(id ?? ''))
-    if (binding) clearCloudHashes(pairKey(binding.localPath, cloudPath(binding.id)))
+    if (binding) {
+      const pair = pairKey(binding.localPath, cloudPath(binding.id))
+      clearCloudHashes(pair)
+      replaceNodes(pair, [])
+    }
     deleteBinding(String(id ?? ''))
     live.delete(String(id ?? ''))
     states.delete(String(id ?? ''))
@@ -617,6 +732,18 @@ export function createCloudService(deps: CloudDeps) {
   const failState = (message: string): CloudState =>
     /EAI_AGAIN|ENOTFOUND|ECONNREFUSED|timeout|timed out|network|fetch failed/i.test(message) ? 'offline' : 'error'
 
+  /**
+   * A provider cursor expires (Drive page tokens, OneDrive delta links, Dropbox's `reset`). The feed
+   * cannot answer that, and only a real tree scan can rebuild the cursor, so the run falls back to
+   * one instead of failing on every tick forever.
+   */
+  const cursorExpired = (e: unknown): boolean =>
+    e instanceof CloudHttpError &&
+    (e.status === 410 ||
+      e.status === 404 ||
+      (e.status === 409 && /reset|expired|cursor/i.test(e.body)) ||
+      (e.status === 400 && /(page ?token|cursor)/i.test(e.body)))
+
   async function run(bindingId: string, opts: { confirmDelete?: boolean } = {}): Promise<{
     ok: boolean
     copied: number
@@ -634,6 +761,7 @@ export function createCloudService(deps: CloudDeps) {
     running.add(id)
     // the previous map described the folder before this run; while it is in flight every row
     // falls back to the binding state, which is exactly «syncing»
+    const previousStates = states.get(id)
     states.delete(id)
     let progress: CloudProgress = {
       phase: 'scan',
@@ -666,23 +794,170 @@ export function createCloudService(deps: CloudDeps) {
       // a run that changed nothing must not rewrite the table
       const hashesBefore = new Map(hashes)
       const ops = createOps(deps.remote, cloudOps(binding, dav, undefined, hashes))
+      const stored = runtimeOf(id)
+      const flatten = dav.flatten?.bind(dav)
+      const changes = dav.changes?.bind(dav)
+      const startToken = dav.startToken?.bind(dav)
+      const rootKey = dav.rootKey?.bind(dav)
+      const treeNodes = dav.treeNodes?.bind(dav)
+      let cmp: CompareResult | null = null
+      /** set only when this run was driven by the provider change feed, not by a tree walk */
+      let feedOutcome: ChangeOutcome | null = null
+      let feedPage: CloudChangePage | null = null
+      let feedNodes: Map<string, CloudNode> | null = null
+      /** how this run narrowed the comparison: cloud events, or local drift only */
+      let subset: 'feed' | 'local' | null = null
+      /** the exact paths this incremental comparison looked at (cloud events + local drift) */
+      let comparedRels: string[] | null = null
+      const nodes = loadNodes(pair)
+      // A fast first run: the binding already holds the user's files and was in sync with another
+      // tool until recently, so an equal size is treated as the same file and nothing is copied.
+      // Every adapter that can list its tree in one query qualifies; `seed: 'full'` opts out.
+      const mode = chooseRunMode({
+        hasFlatten: !!flatten,
+        hasFeed: !!changes && !!startToken && !!rootKey,
+        seed: binding.seed,
+        nodeCount: nodes.size,
+        pageToken: stored.pageToken,
+        fullScanAt: stored.fullScanAt,
+        now: Date.now()
+      })
+      let adoptRun = false
+      /** the whole-tree cloud list stopped at its budget, so adoption cannot trust it */
+      let listCapped = false
+      const walkLocal = (budgetMs: number) => {
+        progress.files = 0
+        return walkTree(binding.localPath, ops, {
+          maxRows: 2_000_000,
+          budgetMs,
+          onProgress: (done, current) => {
+            progress.files = done
+            progress.current = current
+            push()
+          }
+        })
+      }
+      /** Compare only the paths that moved; false means «too much moved, do the full walk». */
+      const compareDirty = async (
+        dirty: string[],
+        rightByRel: Map<string, SyncSide> | undefined,
+        total: number
+      ): Promise<boolean> => {
+        // thousands of one-off stats cost more than the full walk, and so does a run where most of
+        // the tree moved at once
+        if (dirty.length > 5_000 || dirty.length > total * 0.2) return false
+        comparedRels = dirty
+        cmp = await compareSubset(binding.localPath, root, ops, dirty, {
+          compareBy: binding.compareBy,
+          twoWay: binding.direction === 'both',
+          baseline,
+          rightByRel,
+          ctl,
+          onProgress: (_phase, done, current) => {
+            progress.files = done
+            progress.current = current
+            push()
+          }
+        })
+        return true
+      }
+      if (mode === 'adopt' && flatten) {
+        const localWalk = await walkLocal(600_000)
+        if (!localWalk.capped) {
+          const cloudList = await flatten(binding.remoteId)
+          if (cloudList.capped) {
+            // an incomplete cloud list would mark every missing node «local only» and upload the
+            // whole remaining tree; refuse the fast seed and let the normal full scan decide
+            listCapped = true
+            setLive(id, { lastError: LIST_CAPPED_MESSAGE })
+            broadcast()
+          } else {
+            cmp = {
+              rows: sortRows(adoptionRows(localWalk.tree, cloudList.nodes, binding.compareBy)),
+              leftCount: localWalk.tree.size,
+              rightCount: cloudList.nodes.length,
+              capped: false,
+              hashed: 0
+            }
+            adoptRun = true
+          }
+        }
+      } else if (mode === 'feed' && changes && rootKey && stored.pageToken) {
+        const key = await rootKey(binding.remoteId)
+        if (key) {
+          const page = await changes(stored.pageToken).catch((e: unknown) => {
+            if (cursorExpired(e)) return null
+            throw e
+          })
+          const outcome = page ? applyChanges(nodes, key, page) : null
+          if (outcome && !outcome.rescan) {
+            // The change feed only knows the cloud side. A local edit produces no provider event,
+            // so walk the disk (no cloud request) and add everything that moved to the comparison.
+            const localWalk = await walkLocal(120_000)
+            if (!localWalk.capped) {
+              const drift = localDrift(localWalk.tree, baseline).filter((rel) => {
+                // a brand-new empty folder is not a sync row; letting it in would make every
+                // folder in the tree «drift» and turn every incremental run into a full scan
+                const file = localWalk.tree.get(rel)
+                return !file?.dir || baseline[rel] !== undefined
+              })
+              const dirty = [...new Set([...outcome.dirty, ...drift])]
+              // The change page (and the node map it was applied to) already carries the size,
+              // mtime and type of every known cloud path. Reuse them for the comparison instead
+              // of resolving the same paths again with a name query per segment.
+              const rightByRel = new Map<string, SyncSide>()
+              for (const node of outcome.nodes.values()) {
+                rightByRel.set(node.rel, { size: node.size, mtime: node.mtime, dir: node.dir })
+              }
+              if (await compareDirty(dirty, rightByRel, localWalk.tree.size)) {
+                feedOutcome = outcome
+                feedPage = page
+                feedNodes = nodes
+                subset = 'feed'
+              }
+            }
+          }
+        }
+      } else if (mode === 'local') {
+        // No change feed (WebDAV): only the paths this run looks at can be trusted. Comparing just
+        // the local drift keeps an edit made on the server invisible until the next full scan —
+        // and, because only drift rows exist, a cloud-side deletion nobody saw can never turn into
+        // a «delete local» row here.
+        const localWalk = await walkLocal(120_000)
+        if (!localWalk.capped) {
+          const drift = localDrift(localWalk.tree, baseline).filter((rel) => {
+            const file = localWalk.tree.get(rel)
+            return !file?.dir || baseline[rel] !== undefined
+          })
+          // No node map is passed on purpose: it was written by the last full scan and the server
+          // may have moved since, so the few dirty paths are read fresh (`compareSubset` stats the
+          // right side when the map has no entry).
+          if (await compareDirty(drift, undefined, localWalk.tree.size)) subset = 'local'
+        }
+      }
       setLive(id, { state: 'syncing' })
       broadcast()
-      const cmp = await compareTrees(binding.localPath, root, ops, {
-        compareBy: binding.compareBy,
-        twoWay: binding.direction === 'both',
-        baseline,
-        maxRows: 20_000,
-        budgetMs: 120_000,
-        ctl,
-        onProgress: (_phase, done, current) => {
-          progress.files = done
-          progress.current = current
-          push()
-        }
-      })
+      if (!cmp) {
+        cmp = await compareTrees(binding.localPath, root, ops, {
+          compareBy: binding.compareBy,
+          twoWay: binding.direction === 'both',
+          baseline,
+          maxRows: 200_000,
+          budgetMs: 600_000,
+          ctl,
+          onProgress: (_phase, done, current) => {
+            progress.files = done
+            progress.current = current
+            push()
+          }
+        })
+      }
       const conflicts = conflictPaths(cmp.rows)
-      const plan = makePlan(cmp.rows, binding.direction, { deleteExtra: binding.deleteExtra })
+      // the adoption pass never deletes: an extra file on either side is a copy, even when the
+      // binding asks for `deleteExtra`
+      const plan = makePlan(cmp.rows, binding.direction, {
+        deleteExtra: adoptRun ? false : binding.deleteExtra
+      })
       // a scheduled run never deletes on the remote side without a human saying so
       let blockedDeletes = 0
       if (!opts.confirmDelete) {
@@ -722,13 +997,36 @@ export function createCloudService(deps: CloudDeps) {
         copy: plan.copy.filter((a) => !failed(a.rel)),
         remove: plan.remove.filter((a) => !failed(a.rel))
       }
-      const next = nextBaseline(cmp.rows, baseline, settled)
+      // an incremental run only looked at a subset, so `nextBaseline` (which prunes every path it
+      // did not see) would erase the anchor of the whole tree. A capped full scan has the same
+      // problem for the rows beyond the cap.
+      const incremental = subset !== null
+      let next
+      if (adoptRun) {
+        // a fresh baseline for the whole tree; only the rows that were equal by size become
+        // «adopted», so a later size change still compares for real
+        next = nextBaseline(cmp.rows, {}, settled)
+        for (const row of cmp.rows) {
+          if (row.state !== 'same') continue
+          const base = next[row.rel]
+          if (base) base.adopted = true
+        }
+      } else {
+        next =
+          incremental || cmp.capped
+            ? nextBaselineSubset(cmp.rows, baseline, settled)
+            : nextBaseline(cmp.rows, baseline, settled)
+      }
       await refreshUploadedBaseline(next, settled, dav, binding, hashes)
       saveBaseline(pair, next)
       if (binding.compareBy === 'hash') {
-        // a path that no longer exists on the cloud side does not need a remembered hash
+        // a path that no longer exists on the cloud side does not need a remembered hash. In an
+        // incremental run only the dirty paths are allowed to disappear from the cache.
+        const scope = incremental ? new Set<string>(comparedRels ?? []) : null
         const present = new Set(cmp.rows.filter((r) => r.right && !r.right.dir).map((r) => r.rel))
-        for (const rel of [...hashes.keys()]) if (!present.has(rel)) hashes.delete(rel)
+        for (const rel of [...hashes.keys()]) {
+          if ((!scope || scope.has(rel)) && !present.has(rel)) hashes.delete(rel)
+        }
         const moved =
           hashes.size !== hashesBefore.size ||
           [...hashes].some(([rel, v]) => {
@@ -738,16 +1036,71 @@ export function createCloudService(deps: CloudDeps) {
         if (moved) saveCloudHashes(pair, hashes)
       }
       const map = entryStates(cmp.rows, settled, applied.errors)
-      states.set(id, map)
+      const visibleMap =
+        incremental && comparedRels
+          ? mergeEntryStates(previousStates, map, comparedRels)
+          : map
+      states.set(id, visibleMap)
+      // advance the change cursor only after a clean run: a failed copy has no new provider event,
+      // so moving the cursor would silently forget it until the next full scan
+      const cleanRun = applied.errors.length === 0
+      if (feedOutcome && feedPage && feedNodes && cleanRun) {
+        const upserts: CloudNode[] = []
+        for (const [nodeId, node] of feedOutcome.nodes) {
+          const old = feedNodes.get(nodeId)
+          if (
+            !old ||
+            old.rel !== node.rel ||
+            old.parentId !== node.parentId ||
+            old.name !== node.name ||
+            old.dir !== node.dir ||
+            old.size !== node.size ||
+            old.mtime !== node.mtime ||
+            (old.etag ?? '') !== (node.etag ?? '')
+          ) {
+            upserts.push(node)
+          }
+        }
+        const deletes = [...feedNodes.keys()].filter((nodeId) => !feedOutcome!.nodes.has(nodeId))
+        if (upserts.length) upsertNodes(pair, upserts)
+        if (deletes.length) deleteNodeIds(pair, deletes)
+        patchRuntime(id, { pageToken: feedPage.nextToken })
+      } else if (!incremental && cmp.capped) {
+        // a partial tree must never become the base of an incremental run
+        patchRuntime(id, { pageToken: null, fullScanAt: null })
+      } else if (!incremental && !cmp.capped && (cleanRun || adoptRun) && flatten) {
+        // Seed the node tree that the next incremental run compares against. This is the only
+        // «list the whole tree» step outside a walk: a provider whose own scan already saw the
+        // nodes (Drive) hands them over for free, the rest pay one `flatten` call.
+        try {
+          let tree = treeNodes ? treeNodes(binding.remoteId) : null
+          if (!tree) {
+            const flat = await flatten(binding.remoteId)
+            tree = flat.capped ? null : flat.nodes
+          }
+          if (tree) {
+            // the cursor is taken after the tree on purpose: both then describe the same snapshot
+            const token = startToken ? await startToken() : null
+            replaceNodes(pair, tree)
+            patchRuntime(id, {
+              ...(token ? { pageToken: token } : {}),
+              fullScanAt: Date.now()
+            })
+          }
+        } catch {
+          // seeding is best-effort; without it the next run simply does a full scan again
+        }
+      }
+      const capped = cmp.capped ? CAP_MESSAGE : null
       const l = setLive(id, {
-        state: conflicts.length ? 'conflict' : applied.errors.length ? 'error' : 'idle',
+        state: conflicts.length ? 'conflict' : applied.errors.length || capped ? 'error' : 'idle',
         lastRunAt: Date.now(),
-        lastError: applied.errors[0] ?? null,
+        lastError: listCapped ? LIST_CAPPED_MESSAGE : (capped ?? applied.errors[0] ?? null),
         conflicts,
         dirty: false,
         failures: applied.errors.length ? l0(id) + 1 : 0,
         progress: null,
-        counts: map.counts
+        counts: visibleMap.counts
       })
       l.nextRunAt = nextRunAt(binding, { lastRunAt: l.lastRunAt, dirty: false }, Date.now(), l.failures)
       persist(id)
@@ -924,11 +1277,14 @@ export function createCloudService(deps: CloudDeps) {
     const isRoot = norm === best.norm
     let state = entryState(l.state, l.dirty)
     const map = states.get(best.id)
-    // paused/offline/error/conflict belong to the whole binding and outrank a file's own verdict
-    if (map && l.state === 'idle') {
+    // paused/offline/error are the binding's own truth; everything else is a per-file verdict, so a
+    // run in flight must not paint a whole folder as «syncing»
+    if (map && l.state !== 'paused' && l.state !== 'offline' && l.state !== 'error') {
       const rel = isRoot ? '' : norm.slice(best.norm.length + 1)
       // a file row wins; a folder (and the root) carries the worst state below it
       state = (isRoot ? map.dirs.get('') : (map.files.get(rel) ?? map.dirs.get(rel))) ?? state
+      // the one path being transferred right now is the only row that spins
+      if (l.state === 'syncing' && l.progress?.current === rel) state = 'syncing'
     }
     return { provider: best.provider, state, root: isRoot }
   }
