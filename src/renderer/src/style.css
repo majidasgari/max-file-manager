@@ -1563,7 +1563,9 @@ input {
   white-space: nowrap;
 }
 /* properties: a tabbed sheet, Dolphin-style */
-.props {
+/* `.dialog` is declared twice and the later 380px rule wins on equal specificity, so this one must
+   stay qualified: the properties sheet carries paths, checksums and a note field. */
+.dialog.props {
   width: 720px;
   max-width: 96vw;
   height: min(580px, 88vh);
