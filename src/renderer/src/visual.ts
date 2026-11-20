@@ -8,6 +8,7 @@ import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { Plugin, PluginKey } from '@milkdown/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/prose/view'
 import { $prose, replaceAll } from '@milkdown/utils'
+import { resolveMdAsset } from './md-asset.ts'
 import { EditorView as CmView } from '@codemirror/view'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
@@ -40,6 +41,29 @@ const autoDirection = $prose(
       }
     })
 )
+
+/**
+ * `docs/screenshot.png` means "next to the markdown file". Crepe's image node view draws its own
+ * `<img>` and ignores node decorations, so the rendered element is fixed up instead: the document
+ * keeps the relative path and saving writes the file back exactly as it was.
+ */
+const BLOCKED_SCHEME = /^(?!(?:https?|mfm):|data:image\/)[a-z][a-z0-9+.-]*:/i
+
+function resolveRenderedImages(root: HTMLElement, baseDir: string): () => void {
+  const fix = (): void => {
+    root.querySelectorAll('img').forEach((img) => {
+      const raw = img.dataset.mdmSrc ?? img.getAttribute('src') ?? ''
+      if (!img.dataset.mdmSrc) img.dataset.mdmSrc = raw
+      // the rendered surface gets the same scheme guard the sanitised preview has
+      const want = BLOCKED_SCHEME.test(raw) ? '' : resolveMdAsset(raw, baseDir)
+      if (raw && img.getAttribute('src') !== want) img.setAttribute('src', want)
+    })
+  }
+  fix()
+  const observer = new MutationObserver(fix)
+  observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] })
+  return () => observer.disconnect()
+}
 
 const labels = () => ({
   placeholder: t('بنویس… «/» برای منو'),
@@ -95,7 +119,9 @@ export type VisualEditor = {
 export async function createVisualEditor(
   root: HTMLElement,
   value: string,
-  onChange: (md: string) => void
+  onChange: (md: string) => void,
+  /** folder of the markdown file, for images written as a relative path */
+  baseDir?: string
 ): Promise<VisualEditor> {
   root.dir = 'rtl'
   root.classList.add('visual-editor')
@@ -186,6 +212,7 @@ export async function createVisualEditor(
   })
 
   await crepe.create()
+  const stopImageFix = baseDir ? resolveRenderedImages(root, baseDir) : null
 
   return {
     getMarkdown: () => crepe.getMarkdown(),
@@ -195,6 +222,7 @@ export async function createVisualEditor(
     },
     focus: () => root.querySelector<HTMLElement>('.ProseMirror')?.focus(),
     destroy: () => {
+      stopImageFix?.()
       root.querySelector('.milkdown')?.remove()
       void crepe.destroy()
     }

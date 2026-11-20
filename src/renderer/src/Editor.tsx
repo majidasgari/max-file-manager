@@ -133,9 +133,14 @@ export function Editor({
     const el = visualRoot.current
     if (!el) return
     let dead = false
-    void createVisualEditor(el, text, (md) => {
-      if (!dead) setText(md)
-    }).then((v) => {
+    void createVisualEditor(
+      el,
+      text,
+      (md) => {
+        if (!dead) setText(md)
+      },
+      dirOf(path)
+    ).then((v) => {
       if (dead) {
         v.destroy()
         return
