@@ -1,106 +1,108 @@
 # Max File Manager
 
-A dual-pane desktop file manager for KDE and Windows, aiming at Directory Opus level of features — built with Electron, TypeScript and React. **English by default**, Persian (RTL) one click away in Preferences → Appearance; paths and file names always keep their own direction. The complete **Pure** icon set is bundled inside the app, so files and folders look the same on every OS.
+A two-pane desktop file manager for Linux (KDE first) and Windows: real tabs, a transfer queue, cloud folders, remote servers, an indexed search, previews and players that do not need another app, and a loopback agent API over the same operations the UI uses. Built with Electron, TypeScript and React. **English by default**, Persian (RTL) one click away, and every path and file name keeps its own direction. The complete **Pure** icon set (3,000+ SVGs) ships inside the app, so files look the same on every machine.
 
-![dual pane](docs/screenshot-main.png)
+![two panes, grid view](docs/screenshot-main.png)
 
 ## At a glance
 
 | | |
 |---|---|
-| **Two panes, real tabs** | pinned tabs, drag to reorder, rename, lock (navigation opens a fresh tab), per-tab colour and folder icon, a tab menu, `Ctrl+T/W/Tab`, per-pane back/forward history |
-| **Single pane when you want it** | the copy/move target stays tracked and is shown in the status bar |
-| **Language and colour themes** | English/Persian switches live (RTL/LTR); ten colour palettes on top of light/dark |
-| **Icons that travel** | 3,044 Pure 64 px icons bundled in the app, OS icon theme optional, per-folder colour/icon and a category/size icon picker |
-| **One command registry** | every action is a command (`commands.ts`); the toolbar, the shortcut editor and the status bar all read the same list, and every key is rebindable |
-| **Transfers never block the UI** | a queue with byte progress, speed, pause/resume, cancel, per-item errors, and undo |
-| **Nothing is overwritten** | existing names become `name (2).ext`; delete goes to the OS trash unless you hold `Shift` |
-| **Remote locations built in** | FTP, FTPS (explicit/implicit), SFTP and S3 (AWS/MinIO/Ceph) as tabs and transfer endpoints; SFTP key/agent auth and `~/.ssh/config` import; secrets in the OS keyring; nothing extra to install |
+| **Two panes, real tabs** | pinned tabs, drag to reorder, rename, lock (a locked tab opens a new one instead of navigating), per-tab colour, folder icon, tab menu, `Ctrl+T`/`Ctrl+W`, per-pane back/forward history |
+| **Layout is yours** | tabs on top or at the bottom, tabs as a vertical column in the sidebar, sidebar left or right, single or dual pane, four levels of file-area tint — every default is what the app did before the option existed |
+| **Nothing is overwritten** | an existing name becomes `name (2).ext`; delete goes to the OS trash unless you hold `Shift` |
+| **Transfers never block the UI** | a queue with byte progress, speed, pause/resume, cancel, per-item errors and one undo step |
+| **Local, remote and cloud in one place** | FTP/FTPS/SFTP/S3 tabs, and Google Drive, Dropbox, OneDrive and WebDAV folders kept in step by a three-way comparison ([docs/CLOUD.md](docs/CLOUD.md), [docs/REMOTE.md](docs/REMOTE.md)) |
+| **One command registry** | every action is a command (`commands.ts`); the toolbar, the shortcut editor and the status bar read the same list, and every key is rebindable |
+| **Agents, off by default** | a bearer-token loopback API exposing 124 tools over the *same* main-process functions the UI calls ([docs/MCP.md](docs/MCP.md)) |
+| **The file view never runs web content** | `contextIsolation`, no `fs` and no `file://` in the renderer; images and PDFs travel over `mfm://`, which serves absolute paths only |
 
-Grid view with real thumbnails (256px cache, served over `thumb://`):
+## Panes, tabs and views
 
-![grid view](docs/screenshot-grid.png)
+Three views share one keyboard and selection model: **details** with sortable columns, **grid** with real 256 px thumbnails, and **compact** (Dolphin's icon list). `Ctrl+Shift+V` cycles them; each folder keeps its own view, sort and grouping in a hidden `.mfm.json`, so a folder opens next month the way you left it.
 
-## Previews and editors
+![details view](docs/screenshot-list.png)
 
-The preview opens in the opposite pane (`F3`) or as a side panel; a rendered Markdown preview with line numbers for text, an image, audio, a completely embedded video player, PDF through Chromium's own viewer, Office text by reading `docx/xlsx/pptx` zip+XML, and HTML in a sandboxed frame with scripts stripped. The video player has custom controls, keyboard shortcuts, cinema mode, external SRT/VTT subtitles, frame capture and byte-range seeking; system FFmpeg prepares MKV/AVI/other codecs and generates video thumbnails, while Chromium's built-in decoders handle MP4/WebM directly:
+- Columns: type, size, date (ISO or Jalali), permissions, owner, hard links, image dimensions — show, hide and resize them; a small multi-line caption under each name is configurable per field.
+- Colour labels (8 colours), star ratings, per-file notes, pinned files and a coloured dot in front of the name; labels drive `#label` filters and the sidebar counts.
+- Per-folder colour and icon (Pure's coloured folder variants, the OS theme, or line glyphs) written into the folder itself, so other file managers see it too.
+- Virtualized rendering: a 100k-entry folder mounts only the visible slice.
+- Rubber-band selection, type-to-filter, an inline address bar (`Ctrl+L`), and a properties sheet with permissions (real `chmod`), checksums and tags.
+- Vertical tabs put the strip in the sidebar above Places, so a single-pane window gives the whole width to the files:
 
-![preview](docs/screenshot-preview.png)
+![vertical tabs in the sidebar](docs/screenshot-vertical-tabs.png)
 
-`F4` is a real editor: the visual Markdown surface (Milkdown/Crepe — slash menu, tables, task lists, CodeMirror blocks, per-block direction, code always LTR) or the highlighted source view with line numbers, wrapping and an atomic `Ctrl+S`:
+## Previews, editor and players
 
-![markdown editor](docs/screenshot-editor.png)
+`F3` opens the preview beside the list (or in the opposite pane): images, audio, video, PDF through Chromium's own viewer, HTML in a sandboxed frame with scripts stripped, and text with syntax colouring and per-line direction — Persian lines right-aligned, code always LTR. A file type the app cannot render shows its own icon and opens in its application; there is no stand-in preview.
+
+![image preview](docs/screenshot-preview.png)
+
+`F4` is the editor: a visual Markdown surface (Milkdown/Crepe — slash menu, tables, task lists, CodeMirror blocks) or the highlighted source view, atomic `Ctrl+S`, and a one-button PDF export with embedded Vazirmatn. Opening a second text file saves the first one if it changed.
+
+Both players are windows of their own, so they survive switching folders:
+
+- **Video** (`Ctrl+Shift+M`): the folder's video list on the side, subtitles (external SRT/VTT and embedded), chapters, speed, loop, frame capture, byte-range seeking — and **real fullscreen**: the window goes fullscreen through the window manager, with a fallback to the display's own rectangle when the WM refuses. The player's chrome (head row, caption buttons, transport bar) hides itself and returns on a move or a click; `Esc` leaves fullscreen without closing the window.
+
+  ![video window](docs/screenshot-video.png)
+
+- **Music**: cover art, tags, playlist, seek, volume. The sound lives in the main window, so closing the player stops playback instead of leaving a hidden stream running. An `.m3u`/`.m3u8` opens straight into the playlist.
+
+  ![music window](docs/screenshot-music.png)
+
+MKV/AVI and other containers Chromium cannot demux are prepared by system FFmpeg **without re-encoding**: the streams are copied into an MP4 and cached in `~/.config/max-file-manager/video-cache`, so each file is prepared once and opens instantly afterwards. The gallery (`Space`) browses a folder's images with zoom, rotate, crop, resize, a filmstrip and a slideshow.
 
 ## Finding things
 
-An indexed search builds a database of the folders you choose (with exclusions), keeps it current incrementally, and jumps to the containing folder with the file selected — keyboard first, Persian queries included:
+An SQLite FTS5 index over the folders you choose (with exclusions) answers instantly and jumps to the containing folder with the file selected — keyboard first, Persian queries included. `Ctrl+K` opens it from anywhere.
 
 ![search](docs/screenshot-search.png)
 
+`Ctrl+Shift+Y` compares two folders by modification time, creation time or content hash, with ignore patterns, a differences-only view and trash-safe deletes; `Ctrl+Shift+Z` diffs two selected files; duplicate detection groups files by content hash and reports the reclaimable bytes instead of deleting anything.
+
+## Cloud folders and remote servers
+
+A Drive, Dropbox, OneDrive or WebDAV folder becomes a tab that stays in step with the provider: a three-way baseline (local, remote, last common state) decides per path whether to upload, download, conflict or skip, so a run never re-uploads a tree another client already filled. Conflicts are listed per path and clickable. OAuth tokens and passwords live in the OS keyring (`safeStorage`), never in a config file.
+
+FTP, FTPS (explicit and implicit), SFTP (password, private key or SSH agent, `~/.ssh/config` import, `known_hosts` verification) and S3-compatible buckets (AWS, MinIO, Ceph) open as tabs and work as transfer endpoints in both directions; preview, editor and gallery read through a local cache.
+
+## Archives, images, tags
+
+Zip and tar/tar.gz open as listings, `F5` extracts into the other pane, and a selection can be zipped (streamed, level 0–9). Batch image conversion (JPEG/PNG, longest side, quality) and listing export to CSV (UTF-8 BOM) or PDF. ID3v2 tags are read *and written* in place — merging, never rewriting frames nobody asked to change — so titles, artists, covers and track numbers can be fixed in bulk; EXIF stays read-only.
+
+## The system file chooser (Linux)
+
+The app can answer `org.freedesktop.impl.portal.FileChooser`, so a browser's or Electron's "open/save file" dialog becomes this window, with the same views — including the per-folder view, sort and grouping memory of the main window.
+
+## Agents (MCP), off by default
+
+A loopback HTTP API with a bearer token (`~/.config/max-file-manager/mcp.json`, mode `600`) exposes 124 tools over the same operations the UI uses — files, transfers, the index, tags, colours, ratings, cloud folders, players and the window itself — plus a dependency-free stdio bridge (`bin/mfm-mcp.mjs`) and an append-only audit log that records the tool and the *shape* of its arguments, never file contents. Modes: `off` (default), `read`, `write`.
+
+![agents settings](docs/screenshot-agents.png)
+
 ## Settings
 
-One typed preferences object, persisted atomically in SQLite (`search.db`, table `app`) together with the window state, with pages for appearance, file display, columns, toolbar, shortcuts (with conflict detection), window and layout, transfers, file operations, startup, file types, default applications per extension, archive and gallery, search, agents and advanced. The roadmap behind it is derived from the Directory Opus, Krusader and FreeCommander manuals: [docs/PREFERENCES.md](docs/PREFERENCES.md).
+One typed preferences object in SQLite, persisted atomically with the window and session state: appearance, file display, columns, toolbar, shortcuts (with conflict detection), window and layout, transfers, file operations, startup, file types, default applications, archive and gallery, music and video, search, agents, advanced. Ten colour palettes on top of light/dark, a live English/Persian switch, and a rebindable key for every command.
 
 ![settings](docs/screenshot-settings.png)
 
-## Agents (MCP) — off by default
+The roadmap the pages were derived from: [docs/PREFERENCES.md](docs/PREFERENCES.md).
 
-A loopback-only HTTP API with a bearer token (`~/.config/max-file-manager/mcp.json`, mode `600`) exposes 107 tools over the *same* operations the UI uses — files, transfers, the index, tags, colours, ratings, apps and the window itself, plus a dependency-free stdio bridge (`bin/mfm-mcp.mjs`) and an append-only audit log that records the tool and the shape of its arguments — never file contents.
+## Keyboard (defaults, all rebindable)
 
-![agents](docs/screenshot-agents.png)
-
-Modes: `off` (default), `read` or `write`. Design notes: [docs/MCP.md](docs/MCP.md).
-
-## What works today
-
-- **Single or dual pane**, full tabs in each, session restore (panes, tabs, sort, bookmarks, every preference)
-- **Single instance**: launching again raises the open window and opens the path you handed it; optional **minimize to tray / close to tray** with a show/quit tray menu
-- **Remote tabs**: FTP/FTPS, SFTP (password, private key or SSH agent, `~/.ssh/config` import, `known_hosts` verification) and S3-compatible buckets — transfers in any direction, preview/editor/gallery over a local cache; secrets are encrypted with the OS keyring and nothing has to be installed ([docs/REMOTE.md](docs/REMOTE.md))
-- **Startup choice**: restore the previous session or always open one fixed folder
-- **Configurable columns**: type, size, date (ISO or Jalali), permissions, owner, hard links, image dimensions — all sortable (asc/desc), and every folder remembers its own sort in `.mfm.json`; folders stay grouped first for name and size sorts
-- **Inline address bar**: `Ctrl+L` or a double-click on the breadcrumb edits the path in place; the field stays LTR in Persian, and the row itself is LTR
-- **Type-to-filter**: start typing over the list and the live name filter opens with your first character
-- **Status bar details**: a single selection shows name, type, size, date, permissions, colour label and rating
-- **Configurable command toolbar** — add, remove, reorder; an empty bar hides it
-- **Folder sync** (`Ctrl+Shift+Y`) comparing by modification time, creation time or content hash, with ignore patterns, differences-only view and trash-safe deletes; **file diff** (`Ctrl+Shift+Z`) for two selected files
-- **Indexed search** (SQLite FTS5) over your chosen folders, exclusions, incremental re-index, and instant folder sizes from the same index
-- **Thumbnail cache**: 256px PNGs keyed by path+mtime+size, served over `thumb://`, pruned LRU (4000 files / 300 MB)
-- **Photo gallery**: arrows browse the folder's images, `+`/`-` zoom, `R` rotate, `Space` slideshow, `F` fullscreen, filmstrip — with rotate, flip, crop and resize, saving as a copy or overwriting
-- **Visual Markdown editor** and a **one-button PDF export** (embedded Vazirmatn, A4, print CSS); every block gets its own direction from its first strong character, code stays LTR
-- **Archives**: zip and tar/tar.gz open as a listing, `F5` extracts into the other pane, and a zip can be created from a selection (streamed, level 0–9)
-- **Per-folder look that travels with the folder**: colour (with Pure's coloured folder variants), icon (the full Pure pack, OS theme or line glyphs), labels, stars, notes, pinned files and the folder's own view/sort format live in a hidden `.mfm.json` inside that folder
-- **Files can be coloured too**: a coloured dot before the name in the list and grid; file icons themselves stay untouched
-- **Bookmarks show the folder's own icon** instead of a generic star
-- **Default application per extension**: Settings → Default applications chooses an installed app for each extension, overriding the OS default for double-click/Open
-- **Create symbolic links**: right-click → Create symbolic link; on Windows folders become junctions (no elevation) and files need Developer Mode
-- **Window buttons**: four caption styles (default, McMojave traffic lights, Windows, minimal) and a left/right position, only with the app title bar
-- **10 colour themes** on top of light/dark, plus a live English/Persian switch
-- **Coloured labels** (8 colours) with a dot on the row, per-label counts in the sidebar and a `#label` filter; ratings with a `*3` filter; per-file notes
-- **Pin files to the top of a folder**; **transfer filters** (skip existing, newer only, KB/s limit)
-- **Batch image conversion** (JPEG/PNG, longest side, quality) and **listing export** to CSV (UTF-8 BOM) or PDF
-- **ID3/EXIF tags** in the preview and as batch-rename tokens (`{title} {artist} {album} {year} {date} {camera}`)
-- **Virtualized rendering**: a 100k-entry folder mounts only the visible slice
-- **Window chrome**: the app's own title row (themed caption buttons, left or right) or the system frame, rounded corners on a transparent window — your choice; the app icon and taskbar icon use Pure's Dolphin file-manager icon
-- **Desktop integration**: `Ctrl+Alt+T` terminal here (konsole/gnome-terminal/xfce4/x-terminal or `cmd`), reveal in the system file manager, dragging files **out** to VLC/Telegram and browser upload zones (`text/uri-list`, plus a real `File` with its bytes so web drop zones receive it), `%U` folder launches from the desktop, and `scripts/install-integration.sh` to become the default handler for folders
-- **Global hotkey** (X11; on Wayland bind it with KDE's “Add Command” — [docs/INTEGRATION.md](docs/INTEGRATION.md)); on **Windows, `Win+E` opens Max File Manager** through a low-level keyboard hook (the trick Directory Opus uses — Windows refuses to give that key to a normal global shortcut), with a toggle in Preferences → Startup
-- **Update check** against GitHub releases, shown as a status-bar chip
-- **Create new files & rich templates** (`Ctrl+N`, toolbar button, right-click menu): categorized templates with multi-level submenus for Documents & Office (valid ArtCraft formats: WordCraft `.docx`, GridCraft `.xlsx`, DeckCraft `.pptx`, PDFCraft `.pdf`, Markdown, CSV, TXT), Design & Graphics (VectorCraft `.svg`, FigCraft `.fig`, PhotoCraft `.png`), Code & Web (`.py`, `.js`, `.ts`, `.html`, `.css`, `.sh`, `.sql`), Data & Config (`.json`, `.yaml`, `.env`), and generic blank files, with full instant Undo support
-- Safety: `contextIsolation: true`, `nodeIntegration: false`, a CSP in `index.html`, no `fs` and no `file://` in the renderer — images and PDFs come over `mfm://`, which serves absolute paths only
-
-## Keyboard
-
-- `F5` copy to the other pane · `F6` move · `F7` new folder · `Ctrl+N` new file template · `F2` rename (batch when several are selected)
-- `F8` trash · `Shift+F8` delete permanently · `F9` folder size · `F3` preview · `F4` editor/gallery/player · `Ctrl+Z` undo
-- `Alt+←` / `Alt+→` back / forward · `Backspace` up · `Tab` switch active pane · `Ctrl+L` inline address bar · just start typing to filter
-- `Ctrl+K` global search (or double-tap `Shift`) · `Ctrl+Shift+Y` sync · `Ctrl+Shift+F` flat view · `Ctrl+H` hidden files · `Ctrl+D` bookmark
-- `Space` gallery · `Esc` clear selection and close overlays · every one of these is rebindable in Preferences → Shortcuts
+- `F5` copy · `F6` move · `F7` new folder · `Ctrl+N` new file from a template · `F2` rename (batch when several are selected)
+- `F8` trash · `Shift+Delete` delete permanently · `F9` folder size · `F3` preview · `F4` editor/gallery/player · `Ctrl+Z` undo
+- `Alt+←`/`Alt+→` back and forward · `Backspace` up · `Tab` switch pane · `Ctrl+L` inline address bar · type to filter
+- `Ctrl+K` search · `Ctrl+Shift+Y` folder sync · `Ctrl+Shift+F` flat view · `Ctrl+H` hidden files · `Ctrl+D` bookmark · `Ctrl+M` music · `Ctrl+Shift+M` video window
+- `Space` gallery · `Esc` clear selection and close overlays
 
 ## Run it
 
 ```sh
 npm install
-npm run dev        # dev window, hot reload
-npm test           # 147 unit tests: transfers, undo, search, archives, previews, hashes, folder meta, icon packs, keys, prefs, sorting, templates, launch paths
+npm run dev        # dev window with hot reload
+npm test           # 494 unit tests: transfers, undo, search, archives, previews, hashes,
+                   # folder meta, icon packs, keys, prefs, sorting, templates, cloud compare
 npm run typecheck
 npm run build && npm start
 ```
@@ -112,7 +114,7 @@ npm run dist:linux   # AppImage + deb
 npm run dist:win     # NSIS installer (build on Windows, or via wine on Linux)
 ```
 
-Headless render check (no desktop needed) — `SMOKE_JS` drives the real UI before the shot:
+A headless render check needs no desktop — `SMOKE_JS` drives the real UI before the shot:
 
 ```sh
 SMOKE_SHOT=/tmp/mfm.png xvfb-run -a npx electron .
@@ -121,40 +123,31 @@ SMOKE_JS="[...document.querySelectorAll('.tb')][0].click()" SMOKE_SHOT=/tmp/mfm.
 
 ## Why Electron
 
-Directory listing, stat, transfers, hashing and archive reading are native `fs`/`crypto` work in the main process — the renderer only paints. What web tech buys here: a UI that can be rebuilt cheaply as the feature set grows (dual panes, tabs, virtual lists, toolbars, dialogs) and one codebase for KDE and Windows. What it costs: a ~150 MB memory baseline versus a native toolkit, and OS integration (context menus, thumbnails, tray) has to be written by hand instead of coming from the desktop environment.
+Listing, stat, transfers, hashing, archive reading and the SQLite index are native `fs`/`crypto` work in the main process; the renderer only paints. That buys one codebase for KDE and Windows, and a UI that can be rebuilt cheaply as the feature set grows (two panes, tabs, virtual lists, toolbars, dialogs). It costs a ~150 MB memory baseline against a native toolkit, and OS integration (context menus, thumbnails, tray, fullscreen) has to be written by hand instead of coming from the desktop environment.
 
 ## Layout
 
 ```
-src/main/index.ts     window + chrome, filesystem IPC, folder sizes, session state, mfm:// and thumb://
-src/main/mcp.ts       loopback MCP API: 91 tools over the same operations, token, audit log
-src/main/jobs.ts      transfer queue: progress, pause, cancel, undo, batch rename, mkdir
-src/main/search.ts    recursive walk, name matcher, content search, duplicate finder
-src/main/searchdb.ts  SQLite FTS5 index of the chosen folders
-src/main/archives.ts  zip/tar reading, extraction and creation (fflate + built-in tar parser)
-src/main/meta.ts      per-folder colour/icon/labels/notes/pins/file colours in the folder's own .mfm.json
-src/main/ops.ts       delete, free names and symbolic links (junction on Windows)
-src/main/launch-path.ts  the folder/file handed over by the desktop or a second launch
-src/main/thumbs.ts    256px thumbnail cache with LRU pruning
-src/main/sync.ts      folder comparison (mtime / ctime / hash, ignore patterns)
-src/main/preview.ts   text, image, audio, video, PDF and Office preview with size caps
-src/main/player.ts    embedded player jobs, FFmpeg cache, subtitles and frame capture
+src/main/index.ts        window and chrome, filesystem IPC, folder sizes, session state, mfm:// and thumb://
+src/main/jobs.ts         transfer queue: progress, pause, cancel, undo, batch rename, mkdir
+src/main/search.ts       recursive walk, name matcher, content search, duplicate finder
+src/main/searchdb.ts     SQLite FTS5 index of the chosen folders
+src/main/archives.ts     zip/tar listing, extraction and creation
+src/main/meta.ts         per-folder colour/icon/labels/notes/pins in the folder's own .mfm.json
+src/main/cloud-*.ts      Drive / Dropbox / OneDrive / WebDAV clients, the sync engine and its store
+src/main/remotes.ts      FTP, SFTP and S3 profiles with keyring-backed secrets
+src/main/player.ts       video jobs, FFmpeg cache, subtitles, frame capture
 src/main/player-core.ts  playback/remux/transcode decisions, Range and SRT→VTT (pure, tested)
-src/renderer/src/VideoPlayer.tsx  custom embedded HTML5 player (controls, cinema, keyboard)
-src/main/editor.ts    atomic save for the editor
-src/main/image.ts     image save (copy or overwrite) for the gallery editor
-src/main/metadata.ts  ID3 and EXIF readers
-src/main/desktop.ts   terminal-here, reveal, drag-out, global hotkey, desktop entry
-src/preload/index.ts  the only bridge into the renderer
-src/renderer/src/     React UI: App, Pane, Sidebar, Preferences, dialogs, Gallery, Editor,
-                      PreviewPanel, WindowButtons, i18n.ts (Persian source strings + English catalogue),
-                      newTemplates.ts, binaryTemplates.ts, format.ts, prefs.ts, themes.ts,
-                      pure-icons.ts, pure-set.ts, folder-colors.ts
-bin/mfm-mcp.mjs       dependency-free stdio MCP bridge
-docs/FEATURES.md      Directory Opus feature matrix and phases
-docs/PREFERENCES.md   settings roadmap derived from Opus / Krusader / FreeCommander
-docs/MCP.md           agent access design
-AGENTS.md             rules for AI agents working in this repo
+src/main/mcp.ts          loopback agent API over the same operations, token, audit log
+src/main/portal.ts       xdg-desktop-portal FileChooser backend (Linux file dialogs)
+src/preload/index.ts     the only bridge into the renderer
+src/renderer/src/        React UI: App, Pane, TabStrip, Sidebar, PortalPicker, Preferences,
+                         VideoPlayer, StandaloneVideo, StandaloneMusic, Editor, Gallery,
+                         PreviewPanel, i18n.ts, prefs.ts, format.ts, themes.ts, pure-set.ts
+bin/mfm-mcp.mjs          dependency-free stdio MCP bridge
+docs/                    FEATURES.md (Opus matrix), PREFERENCES.md, MCP.md, CLOUD.md,
+                         REMOTE.md, INTEGRATION.md, SYNC.md, RELEASE.md
+AGENTS.md                rules for agents working in this repo
 ```
 
 ## License
