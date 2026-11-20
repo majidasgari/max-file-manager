@@ -4307,22 +4307,22 @@ export default function App() {
               tabsSlot={
                 tabsInSidebar ? (
                   <TabStrip
-                    pane={panes[0]}
+                    pane={panes[active]}
                     active
                     iconSet={iconSetFor()}
                     showTabIcons={prefs.tabIcons}
                     tabIcons={tabIcons}
                     tabColors={prefs.tabColors}
                     middleClickClosesTab={prefs.middleClickClosesTab}
-                    onTabNew={() => addTab(0, tabOf(panes![0]))}
-                    onTabClose={(idx) => closeTab(0, idx)}
-                    onTabPick={(idx) => setPanes((p) => p && patch(p, 0, { ti: idx, sel: [] }))}
+                    onTabNew={() => addTab(active, tabOf(panes![active]))}
+                    onTabClose={(idx) => closeTab(active, idx)}
+                    onTabPick={(idx) => setPanes((p) => p && patch(p, active, { ti: idx, sel: [] }))}
                     onTabMenu={(idx, x, y) => setMenu({ path: null, tab: idx, x, y })}
-                    onTabMove={(from, to) => moveTab(0, from, to)}
+                    onTabMove={(from, to) => moveTab(active, from, to)}
                   />
                 ) : null
               }
-              tabsCount={panes[0].tabs.length}
+              tabsCount={panes[active].tabs.length}
               labels={labelCounts}
               onPickLabel={(id) => setPanes((p) => p && patch(p, active, { filter: '#' + id }))}
               roots={roots}
