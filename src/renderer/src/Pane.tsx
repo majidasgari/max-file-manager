@@ -596,7 +596,9 @@ export function Pane(props: Props) {
     // promise («file parts invalid»). Cancel the HTML one and keep the real file drag from main;
     // it lands back here as `Files`, and `dropFiles` recognises our own paths as internal.
     // Linux keeps the HTML drag: `startDrag` is not reliable under Wayland and both orders were
-    // tested there.
+    // tested there. A native drag owns the mouse and makes Chromium swallow the drop on its own
+    // source, so it must not start here; App hands over to main only when the pointer leaves the
+    // window for an outside target.
     if (api.platform !== 'linux') {
       ev.preventDefault()
       api.dragOut(paths)
@@ -606,7 +608,6 @@ export function Pane(props: Props) {
     ev.dataTransfer.setData('text/uri-list', paths.map(fileUri).join('\r\n'))
     ev.dataTransfer.setData('text/plain', paths.join('\n'))
     ev.dataTransfer.effectAllowed = 'all'
-    api.dragOut(paths)
   }
 
   const allowDrop = (ev: React.DragEvent) => {

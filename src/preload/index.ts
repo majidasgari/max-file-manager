@@ -8,6 +8,14 @@ ipcRenderer.on('mcp:ui', (_e, msg) => {
   else uiQueue.push(msg)
 })
 
+// The music window may mount after the main window's first push; keep the latest state here.
+let musicStateListener: ((state: unknown) => void) | null = null
+let lastMusicState: unknown = null
+ipcRenderer.on('music:state', (_e, state) => {
+  lastMusicState = state
+  if (musicStateListener) musicStateListener(state)
+})
+
 // FFmpeg conversion can finish before the panel subscribes; buffer progress/done events.
 let playerListener: ((msg: unknown) => void) | null = null
 const playerQueue: unknown[] = []
@@ -126,6 +134,7 @@ contextBridge.exposeInMainWorld('api', {
   writeTags: (path: string, fields: unknown) => ipcRenderer.invoke('meta:writeTags', { path, fields }),
   audioRead: (paths: string[]) => ipcRenderer.invoke('meta:audioRead', paths),
   audioWrite: (req: unknown) => ipcRenderer.invoke('meta:audioWrite', req),
+  audioDurations: (paths: string[]) => ipcRenderer.invoke('audio:durations', paths),
   saveImageAs: (src: string, dataUrl: string, dest?: string) =>
     ipcRenderer.invoke('image:saveAs', { src, dataUrl, dest }),
   convertImages: (files: string[], opts: unknown) =>
@@ -261,6 +270,11 @@ contextBridge.exposeInMainWorld('api', {
       return () => {
         if (playerListener === cb) playerListener = null
       }
+    },
+    onWindowClosed: (cb: (kind: 'music' | 'video') => void) => {
+      const fn = (_e: unknown, kind: 'music' | 'video') => cb(kind)
+      ipcRenderer.on('player:window-closed', fn)
+      return () => ipcRenderer.removeListener('player:window-closed', fn)
     }
   },
   hash: (paths: string[], algo: string) => ipcRenderer.invoke('fs:hash', paths, algo),
@@ -287,7 +301,7 @@ contextBridge.exposeInMainWorld('api', {
       return () => ipcRenderer.removeListener('app:open-path', fn)
     },
     launchPath: () => ipcRenderer.invoke('app:launchPath'),
-    openViewer: (kind: 'gallery' | 'editor', file: string) =>
+    openViewer: (kind: 'gallery' | 'editor' | 'music' | 'video', file: string) =>
       ipcRenderer.invoke('app:openViewer', { kind, path: file }),
     setWallpaper: (p: string, fillMode?: string) =>
       ipcRenderer.invoke('app:setWallpaper', p, fillMode),
@@ -332,5 +346,23 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on('state:marks', fn)
       return () => ipcRenderer.removeListener('state:marks', fn)
     }
+  }
+})
+
+// The standalone music window only mirrors state and sends commands: playback stays in the main window.
+contextBridge.exposeInMainWorld('musicBridge', {
+  push: (state: unknown) => ipcRenderer.send('music:state', state),
+  send: (cmd: unknown) => ipcRenderer.send('music:cmd', cmd),
+  onState: (cb: (state: unknown) => void) => {
+    musicStateListener = cb
+    if (lastMusicState !== null) cb(lastMusicState)
+    return () => {
+      if (musicStateListener === cb) musicStateListener = null
+    }
+  },
+  onCmd: (cb: (cmd: unknown) => void) => {
+    const fn = (_e: unknown, cmd: unknown) => cb(cmd)
+    ipcRenderer.on('music:cmd', fn)
+    return () => ipcRenderer.removeListener('music:cmd', fn)
   }
 })

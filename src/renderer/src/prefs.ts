@@ -106,6 +106,8 @@ export type Prefs = {
   sidebarWidth: number
   /** 0 = no tint at all (same surface as the header); 6 = most vivid */
   sidebarTone: 0 | 1 | 2 | 3 | 4 | 5 | 6
+  /** file-area surface: 0 = today's panel, 3 = exactly the header surface */
+  contentTone: 0 | 1 | 2 | 3
   /** ids of sidebar sections currently collapsed ('places' | 'bookmarks' | 'labels' | 'drives') */
   sidebarCollapsed: string[]
   /** show the removable-devices section in the sidebar */
@@ -335,6 +337,7 @@ export const DEFAULTS: Prefs = {
   sidebarOpen: true,
   sidebarWidth: 208,
   sidebarTone: 0,
+  contentTone: 0,
   sidebarCollapsed: [],
   sidebarDrives: true,
   sidebarTreeOpen: [],
@@ -650,6 +653,10 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
     sidebarTone:
       typeof p.sidebarTone === 'number' && [0, 1, 2, 3, 4, 5, 6].includes(p.sidebarTone)
         ? (p.sidebarTone as 0 | 1 | 2 | 3 | 4 | 5 | 6)
+        : 0,
+    contentTone:
+      typeof p.contentTone === 'number' && [0, 1, 2, 3].includes(p.contentTone)
+        ? (p.contentTone as 0 | 1 | 2 | 3)
         : 0,
     sidebarCollapsed:
       Array.isArray(p.sidebarCollapsed)

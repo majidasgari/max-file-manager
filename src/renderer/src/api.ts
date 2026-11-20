@@ -184,6 +184,26 @@ export type AudioWriteRequest = {
 
 export type AudioWriteResult = { done: number; errors: string[]; warnings?: string[] }
 
+/** What the standalone music window mirrors: the main window owns the `<audio>`, this is its state. */
+export type MusicWindowState = {
+  items: string[]
+  index: number
+  playing: boolean
+  pos: number
+  dur: number
+  volume: number
+}
+
+/** Commands the music window sends back to the one player in the main window. */
+export type MusicCommand =
+  | { type: 'toggle' }
+  | { type: 'next' }
+  | { type: 'prev' }
+  | { type: 'play'; index: number }
+  | { type: 'seek'; pos: number }
+  | { type: 'volume'; volume: number }
+  | { type: 'remove'; index: number }
+
 export type Tags = {
   title?: string
   artist?: string
@@ -580,6 +600,7 @@ export type Api = {
   writeTags(path: string, fields: Record<string, string>): Promise<{ ok: true } | { error: string }>
   audioRead(paths: string[]): Promise<AudioRead>
   audioWrite(req: AudioWriteRequest): Promise<AudioWriteResult>
+  audioDurations(paths: string[]): Promise<Record<string, number>>
   saveImageAs(src: string, dataUrl: string, dest?: string): Promise<{ path: string } | { error: string }>
   convertImages(
     files: string[],
@@ -764,6 +785,7 @@ export type Api = {
     saveFrame(path: string, at: number): Promise<{ path: string } | { error: string }>
     capabilities(): Promise<PlayerCapabilities>
     onEvent(cb: (e: PlayerEvent) => void): () => void
+    onWindowClosed(cb: (kind: 'music' | 'video') => void): () => void
   }
   hash(paths: string[], algo: string): Promise<HashResult[]>
   pathForFile(file: File): string
@@ -785,8 +807,11 @@ export type Api = {
     onOpenPath(cb: (p: string) => void): () => void
     /** the path the process was launched with (null when started normally) */
     launchPath(): Promise<string | null>
-    /** open the image viewer or the text editor in its own window */
-    openViewer(kind: 'gallery' | 'editor', path: string): Promise<{ ok: true } | { error: string }>
+    /** open the image viewer, text editor, music player or video window */
+    openViewer(
+      kind: 'gallery' | 'editor' | 'music' | 'video',
+      path: string
+    ): Promise<{ ok: true } | { error: string }>
     /** KDE/Plasma only: make an image the desktop background, optionally with a `-f` fill mode */
     setWallpaper(path: string, fillMode?: string): Promise<{ ok: true } | { error: string }>
     /** Ctrl+Q / ⌘Q: quit for real, even when the window is set to hide in the tray */
@@ -821,10 +846,20 @@ export type Api = {
   }
 }
 
+/** The cross-window music bridge; the player itself never leaves the main window. */
+export type MusicBridge = {
+  push(state: MusicWindowState): void
+  onCmd(cb: (cmd: MusicCommand) => void): () => void
+  send(cmd: MusicCommand): void
+  onState(cb: (state: MusicWindowState) => void): () => void
+}
+
 declare global {
   interface Window {
     api: Api
+    musicBridge: MusicBridge
   }
 }
 
 export const api = window.api
+export const musicBridge = window.musicBridge

@@ -370,6 +370,7 @@ export function Preferences({
         <section className="prefs-body">
           {page === 'appearance' && (
             <>
+              <div className="pref-group">{t('زبان و ظاهر')}</div>
               {row(
                 t('زبان'),
                 t('فوراً اعمال می‌شود؛ کل رابط و جهت چیدمان هم عوض می‌شود'),
@@ -418,6 +419,21 @@ export function Preferences({
                 </div>
               )}
               {row(
+                t('تفاوت رنگ ناحیهٔ فایل‌ها با هدر'),
+                t('۰ = تفاوت امروز، ۳ = ناحیهٔ فایل‌ها دقیقاً هم‌رنگ هدر'),
+                seg(
+                  prefs.contentTone,
+                  [
+                    { v: 0, label: fa(0) },
+                    { v: 1, label: fa(1) },
+                    { v: 2, label: fa(2) },
+                    { v: 3, label: fa(3) }
+                  ],
+                  'contentTone'
+                )
+              )}
+              <div className="pref-group">{t('فونت رابط')}</div>
+              {row(
                 t('فونت رابط کاربری'),
                 t('نام فونت نصب‌شده؛ خالی = وزیرمتن'),
                 <div className="font-row">
@@ -442,6 +458,7 @@ export function Preferences({
               <div className="font-preview" dir="auto" style={{ fontFamily: fontStack(prefs.fontFamily) }}>
                 {t('نمونهٔ متن')} · Aa 0123
               </div>
+              <div className="pref-group">{t('کادر پنجره')}</div>
               {row(
                 t('تایتل‌بار'),
                 t('سیستم = قاب سیستم‌عامل، برنامه = نوار خود اپ'),
@@ -458,18 +475,6 @@ export function Preferences({
                     onChange={(e) => onChange({ rounded: e.target.checked })}
                   />
                 </label>
-              )}
-              {row(
-                t('شکل تب‌ها'),
-                t('کلاسیک = تب‌های چسبیده به نوار، قرصی = هر تب یک قرص جدا'),
-                seg(
-                  prefs.tabShape,
-                  [
-                    { v: 'classic', label: t('کلاسیک') },
-                    { v: 'pill', label: t('قرصی') }
-                  ],
-                  'tabShape'
-                )
               )}
               {row(
                 t('دکمه‌های پنجره'),
@@ -497,35 +502,6 @@ export function Preferences({
                   ],
                   'titlebarSide',
                   prefs.titlebar === 'system'
-                )
-              )}
-              {row(
-                t('جای تب‌ها'),
-                null,
-                seg(
-                  prefs.tabsPlace,
-                  [
-                    { v: 'top', label: t('بالا') },
-                    { v: 'bottom', label: t('پایین') }
-                  ],
-                  'tabsPlace'
-                )
-              )}
-              {row(
-                t('تب‌های عمودی در سایدبار'),
-                t('فقط در نمای تک‌پنلی، بالای مکان‌ها'),
-                check(prefs.tabsVertical, 'tabsVertical')
-              )}
-              {row(
-                t('سمت سایدبار'),
-                null,
-                seg(
-                  prefs.sidebarSide,
-                  [
-                    { v: 'left', label: t('چپ') },
-                    { v: 'right', label: t('راست') }
-                  ],
-                  'sidebarSide'
                 )
               )}
             </>
@@ -913,15 +889,11 @@ export function Preferences({
 
           {page === 'layout' && (
             <>
+              <div className="pref-group">{t('پنجره و پنل‌ها')}</div>
               {row(
                 t('چیدمان پنجره'),
                 t('تک‌پنجره = مثل Explorer، دوپنجره = مثل Total Commander'),
                 seg(prefs.layout, [{ v: 'single', label: t('تک‌پنجره') }, { v: 'dual', label: t('دوپنجره') }], 'layout')
-              )}
-              {row(
-                t('سایدبار'),
-                null,
-                seg(prefs.sidebar, [{ v: 'docked', label: t('چسبیده') }, { v: 'float', label: t('شناور') }], 'sidebar')
               )}
               {row(
                 t('درخت پوشه‌ها (پنل جدا)'),
@@ -941,10 +913,23 @@ export function Preferences({
                 t('با هر تغییر پوشه در پنل فعال، درخت خودش همان پوشه را باز و نمایان می‌کند'),
                 check(prefs.treeAutoFocus, 'treeAutoFocus')
               )}
+              <div className="pref-group">{t('سایدبار')}</div>
               {row(
-                t('حافظه‌های جانبی در سایدبار'),
-                t('بخش USB و دیسک‌های جداشدنی در سایدبار نمایش داده شود'),
-                check(prefs.sidebarDrives, 'sidebarDrives')
+                t('سایدبار'),
+                null,
+                seg(prefs.sidebar, [{ v: 'docked', label: t('چسبیده') }, { v: 'float', label: t('شناور') }], 'sidebar')
+              )}
+              {row(
+                t('سمت سایدبار'),
+                null,
+                seg(
+                  prefs.sidebarSide,
+                  [
+                    { v: 'left', label: t('چپ') },
+                    { v: 'right', label: t('راست') }
+                  ],
+                  'sidebarSide'
+                )
               )}
               {row(
                 t('سطح رنگ تم سایدبار'),
@@ -964,9 +949,44 @@ export function Preferences({
                 )
               )}
               {row(
+                t('حافظه‌های جانبی در سایدبار'),
+                t('بخش USB و دیسک‌های جداشدنی در سایدبار نمایش داده شود'),
+                check(prefs.sidebarDrives, 'sidebarDrives')
+              )}
+              {row(
                 t('نوار نشان‌ها'),
                 t('نشان‌های سایدبار به‌صورت یک نوار دکمه‌ای زیر نوار ابزار هم نمایش داده شوند'),
                 check(prefs.bookmarkBar, 'bookmarkBar')
+              )}
+              <div className="pref-group">{t('تب‌ها')}</div>
+              {row(
+                t('جای تب‌ها'),
+                null,
+                seg(
+                  prefs.tabsPlace,
+                  [
+                    { v: 'top', label: t('بالا') },
+                    { v: 'bottom', label: t('پایین') }
+                  ],
+                  'tabsPlace'
+                )
+              )}
+              {row(
+                t('تب‌های عمودی در سایدبار'),
+                t('فقط در نمای تک‌پنلی، بالای مکان‌ها'),
+                check(prefs.tabsVertical, 'tabsVertical')
+              )}
+              {row(
+                t('شکل تب‌ها'),
+                t('کلاسیک = تب‌های چسبیده به نوار، قرصی = هر تب یک قرص جدا'),
+                seg(
+                  prefs.tabShape,
+                  [
+                    { v: 'classic', label: t('کلاسیک') },
+                    { v: 'pill', label: t('قرصی') }
+                  ],
+                  'tabShape'
+                )
               )}
               {row(
                 t('پنهان‌کردن نوار تب با یک تب'),
@@ -1332,6 +1352,7 @@ export function Preferences({
 
           {page === 'archive' && (
             <>
+              <div className="pref-group">{t('آرشیو')}</div>
               {row(
                 t('سطح فشرده‌سازی zip'),
                 t('۰ = بدون فشرده‌سازی (سریع‌ترین)، ۹ = بیشترین فشرده‌سازی'),
@@ -1347,6 +1368,7 @@ export function Preferences({
                   />
                 </div>
               )}
+              <div className="pref-group">{t('تصویر و گالری')}</div>
               {row(
                 t('قالب ذخیرهٔ تصویر'),
                 t('فقط روی «ذخیره به‌عنوان کپی» اثر دارد؛ جایگزینی همیشه قالب خود فایل را نگه می‌دارد'),
@@ -1394,11 +1416,13 @@ export function Preferences({
                 </div>
               )}
               {row(t('حلقه‌ای بودن گالری'), t('در آخرین عکس به اولی برگردد'), check(prefs.galleryLoop, 'galleryLoop'))}
+              <div className="pref-group">{t('موسیقی و ویدیو')}</div>
               {row(
-                t('پخش‌کنندهٔ موسیقی'),
+                t('پخش‌کنندهٔ موسیقی و ویدیو'),
                 t('پلی‌لیست در پنل پیش‌نمایش؛ خاموش = این ماژول هیچ بخشی بار نمی‌کند و حافظه نمی‌گیرد'),
                 check(prefs.musicPlayer, 'musicPlayer')
               )}
+              <div className="pref-group">{t('پیش‌نمایش')}</div>
               {row(
                 t('سقف پیش‌نمایش متن'),
                 t('کیلوبایت؛ فایل بزرگ‌تر بریده می‌شود'),

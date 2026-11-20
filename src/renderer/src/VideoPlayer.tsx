@@ -27,6 +27,11 @@ type Props = {
   subtitles?: PlayerSubtitle[]
   onNote?(msg: string): void
   onExternal?(path: string): void
+  /** when given, the fullscreen button asks the host window to go real fullscreen instead of cinema */
+  onFullscreen?: () => void
+  fullscreen?: boolean
+  /** standalone windows hide their controls on their own instead of keeping them under the pointer */
+  autoHide?: boolean
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
@@ -52,7 +57,10 @@ export function VideoPlayer({
   chapters = [],
   subtitles = [],
   onNote,
-  onExternal
+  onExternal,
+  onFullscreen,
+  fullscreen = false,
+  autoHide = false
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
@@ -82,6 +90,14 @@ export function VideoPlayer({
     video.playbackRate = rate
     video.loop = loop
   }, [volume, muted, rate, loop])
+
+  // Closing the standalone video window must also stop the same file if the preview pane was
+  // playing it: that <video> is a separate element in this window and would keep going.
+  useEffect(() => {
+    return api.player.onWindowClosed((kind) => {
+      if (kind === 'video') videoRef.current?.pause()
+    })
+  }, [])
 
   useEffect(() => {
     const made = subtitles.map((s) => ({
@@ -129,7 +145,7 @@ export function VideoPlayer({
   const poke = (): void => {
     setControlsOn(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
-    if (playing && !hovered) {
+    if (playing && (autoHide || !hovered)) {
       hideTimer.current = setTimeout(() => setControlsOn(false), 2400)
     }
   }
@@ -226,7 +242,9 @@ export function VideoPlayer({
         return true
       case 'f':
       case 'F':
-        setCinema((c) => !c)
+        // in a standalone window the host owns fullscreen, so the player must not eat F for cinema
+        if (onFullscreen) onFullscreen()
+        else setCinema((c) => !c)
         return true
       case 'l':
       case 'L':
@@ -284,6 +302,7 @@ export function VideoPlayer({
       ref={shellRef}
       className={
         'vp' +
+        (autoHide ? ' autohide' : '') +
         (cinema ? ' cinema' : '') +
         (compact ? ' compact' : '') +
         (playing ? ' playing' : '') +
@@ -298,6 +317,7 @@ export function VideoPlayer({
         }
       }}
       onPointerMove={poke}
+      onClick={poke}
       onMouseEnter={() => {
         setHovered(true)
         setControlsOn(true)
@@ -486,10 +506,18 @@ export function VideoPlayer({
           </div>
           <button
             className="vp-btn"
-            title={cinema ? t('خروج از حالت سینما (Esc)') : t('حالت سینما (F)')}
-            onClick={() => setCinema((c) => !c)}
+            title={
+              onFullscreen
+                ? fullscreen
+                  ? t('خروج از تمام‌صفحه (Esc)')
+                  : t('تمام‌صفحه (F)')
+                : cinema
+                  ? t('خروج از حالت سینما (Esc)')
+                  : t('حالت سینما (F)')
+            }
+            onClick={onFullscreen ?? (() => setCinema((c) => !c))}
           >
-            {cinema ? <ExitFullscreenIcon /> : <FullscreenIcon />}
+            {(onFullscreen ? fullscreen : cinema) ? <ExitFullscreenIcon /> : <FullscreenIcon />}
           </button>
         </div>
       </div>

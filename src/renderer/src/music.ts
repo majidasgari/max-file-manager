@@ -21,6 +21,8 @@ export type Music = {
   pos: number
   /** track length in seconds, 0 until the metadata arrives */
   dur: number
+  /** output volume, 0..1 */
+  volume: number
 }
 
 export const NO_MUSIC: Music = {
@@ -30,7 +32,8 @@ export const NO_MUSIC: Music = {
   open: false,
   error: false,
   pos: 0,
-  dur: 0
+  dur: 0,
+  volume: 1
 }
 
 let state: Music = NO_MUSIC
@@ -74,6 +77,7 @@ const element = (): HTMLAudioElement => {
   if (!audio) {
     audio = new Audio()
     audio.preload = 'metadata'
+    audio.volume = state.volume
     // attached (invisible) so the element is inspectable from the page and counts as window media
     audio.style.display = 'none'
     document.body.append(audio)
@@ -116,6 +120,13 @@ export function toggleMusic(): void {
 export function stepMusic(step: number): void {
   const next = stepIndex(state.items, state.index, step)
   if (next >= 0) playAt(next)
+}
+
+/** Sets the shared element's volume; the standalone window drives this through the bridge. */
+export function setVolume(volume: number): void {
+  const v = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 1))
+  if (audio) audio.volume = v
+  set({ volume: v })
 }
 
 /** Jumps inside the loaded track; ignored until the duration is known. */

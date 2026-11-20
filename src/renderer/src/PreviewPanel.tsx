@@ -4,8 +4,6 @@ import {
   api,
   type Entry,
   type PlayerCapabilities,
-  type PlayerJobInfo,
-  type PlayerSource,
   type Preview
 } from './api'
 import { fa, fmtDate, fmtSize, mediaUrl, thumbUrl } from './format'
@@ -14,6 +12,7 @@ import { renderMarkdown } from './md'
 import { cleanHtml, isHtmlPath } from './html'
 import { highlightCode, langFor } from './highlight'
 import { VideoPlayer } from './VideoPlayer'
+import { usePlayerOpen } from './use-player-open'
 import { musicState, subscribeMusic } from './music'
 
 /** The player's own chunk, fetched the first time it opens: a disabled module has no UI code loaded. */
@@ -37,25 +36,6 @@ type Props = {
 
 const MAX_INLINE_IMAGE = 8_000_000
 
-type PlayerState =
-  | { kind: 'loading'; path: string }
-  | { kind: 'preparing'; path: string; job: PlayerJobInfo }
-  | { kind: 'ready'; path: string; source: PlayerSource }
-  | { kind: 'error'; path: string; message: string }
-
-const playerErrorText = (code: string): string => {
-  if (code === 'no-video') return t('این فایل جریان ویدئو ندارد')
-  if (code === 'no-encoder') return t('FFmpeg برای تبدیل این ویدئو انکودر مناسبی ندارد')
-  if (code === 'ffmpeg-missing' || code === 'ffprobe-missing') {
-    return t('FFmpeg/ffprobe نصب نیست؛ فقط MP4/WebM پخش می‌شود')
-  }
-  if (code === 'probe-failed') {
-    return t('این فایل ویدئوی معتبر نیست یا FFmpeg نتوانست آن را بخواند')
-  }
-  if (/empty/i.test(code)) return t('فایل خالی است')
-  return t('پخش این ویدئو ممکن نشد — {error}', { error: code })
-}
-
 export function PreviewPanel({
   maxKB = 200,
   entry,
@@ -76,7 +56,6 @@ export function PreviewPanel({
   const [tags, setTags] = useState<Record<string, string> | null>(null)
   /** Chromium's PDF viewer sizes itself once, on load; a remount after layout fixes the zoom */
   const [pdfBoot, setPdfBoot] = useState(0)
-  const [player, setPlayer] = useState<PlayerState | null>(null)
   const [caps, setCaps] = useState<PlayerCapabilities | null>(null)
   // an open player owns this slot: no other preview is fetched while it is up
   const musicOpen = useSyncExternalStore(subscribeMusic, musicState).open
@@ -94,72 +73,8 @@ export function PreviewPanel({
 
   const videoPath = data?.kind === 'video' && entry ? entry.path : ''
   const videoStamp = entry ? `${entry.mtime}:${entry.size}` : ''
+  const { player, cancelPrepare } = usePlayerOpen(videoPath, videoStamp, onNote)
   const pv = player && player.path === entry?.path ? player : null
-
-  // Direct files need no work; other containers are prepared by FFmpeg in main with progress.
-  // Events carry the original path, so a late done/error from a previous selection is ignored.
-  useEffect(() => {
-    if (!videoPath) {
-      setPlayer(null)
-      return
-    }
-    let live = true
-    let jobId = ''
-    let settled = false
-    setPlayer({ kind: 'loading', path: videoPath })
-    const fail = (message: string): void => {
-      setPlayer({ kind: 'error', path: videoPath, message })
-      onNote?.(message)
-    }
-    const off = api.player.onEvent((e) => {
-      if (!live || e.path !== videoPath) return
-      if (e.type === 'progress') {
-        setPlayer((p) =>
-          p?.kind === 'preparing' && p.job.id === e.id
-            ? { kind: 'preparing', path: videoPath, job: { ...p.job, progress: e.progress } }
-            : p
-        )
-        return
-      }
-      if (settled) return
-      if (jobId && e.id !== jobId) return
-      settled = true
-      jobId = ''
-      if (e.type === 'done') setPlayer({ kind: 'ready', path: videoPath, source: e.source })
-      else fail(playerErrorText(e.error))
-    })
-    void api.player
-      .open(videoPath)
-      .then((r) => {
-        if (!live) {
-          if (r.kind === 'preparing') void api.player.cancel(r.job.id)
-          return
-        }
-        if (settled) return
-        if (r.kind === 'ready') {
-          settled = true
-          setPlayer({ kind: 'ready', path: videoPath, source: r.source })
-        } else if (r.kind === 'preparing') {
-          jobId = r.job.id
-          setPlayer({ kind: 'preparing', path: videoPath, job: r.job })
-        } else {
-          settled = true
-          fail(playerErrorText(r.error))
-        }
-      })
-      .catch((e: unknown) => live && fail(e instanceof Error ? e.message : String(e)))
-    return () => {
-      live = false
-      off()
-      if (jobId) void api.player.cancel(jobId)
-    }
-  }, [videoPath, videoStamp, onNote])
-
-  const cancelPrepare = (): void => {
-    if (player?.kind !== 'preparing') return
-    void api.player.cancel(player.job.id)
-    setPlayer({ kind: 'error', path: player.path, message: t('آماده‌سازی ویدئو لغو شد') })
-  }
 
   useEffect(() => {
     setData(null)
@@ -236,6 +151,15 @@ export function PreviewPanel({
           </span>
         )}
         <span className="spacer" />
+        {data?.kind === 'video' && entry && (
+          <button
+            className="tb"
+            title={t('پنجرهٔ ویدیو')}
+            onClick={() => void api.app.openViewer('video', entry.path)}
+          >
+            <VideoIcon />
+          </button>
+        )}
         {onGallery && imageIndex && (
           <button className="tb" title={t(t('گالری (Space)'))} onClick={onGallery}>
             <GridIcon />

@@ -1,6 +1,6 @@
 import { getLang, setLang, subscribeLang, t } from './i18n.ts'
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { api, type Chrome, type CloudBinding, type CloudView, type DesktopApp, type DirRef, type Drive, type Entry, type FolderMeta, type Job, type RemoteProfile, type SearchProgress, type SyncJob, type SyncMode, type SyncProgress } from './api'
+import { api, musicBridge, type Chrome, type CloudBinding, type CloudView, type DesktopApp, type DirRef, type Drive, type Entry, type FolderMeta, type Job, type RemoteProfile, type SearchProgress, type SyncJob, type SyncMode, type SyncProgress } from './api'
 import { ContextMenu, type MenuAction, type MenuItem } from './ContextMenu'
 import { DrivesPage } from './DrivesPage'
 import { ArchiveDialog, type ArchiveJob } from './ArchiveDialog'
@@ -60,7 +60,23 @@ import { BookmarkBar } from './BookmarkBar'
 import { profileUri } from '../../shared/remote-profile.ts'
 import { pairKey } from '../../shared/sync.ts'
 import { COMMANDS, type CommandId } from './commands'
-import { addMusic, bindMusicSave, closeMusic, disposeMusic, loadMusic, musicState, openMusicPanel, openMusicPlaylist } from './music'
+import {
+  addMusic,
+  bindMusicSave,
+  closeMusic,
+  disposeMusic,
+  loadMusic,
+  musicState,
+  openMusicPanel,
+  openMusicPlaylist,
+  playAt,
+  removeMusic,
+  seekMusic,
+  setVolume,
+  stepMusic,
+  subscribeMusic,
+  toggleMusic
+} from './music'
 import { appModifier, matchAccel, systemShortcut } from './keys'
 import { BLANK_TEMPLATE, NEW_CATEGORIES, NEW_FILE_TEMPLATES, type NewIconName } from './newTemplates.ts'
 import {
@@ -78,6 +94,7 @@ import {
   isAudioFile,
   isIgnoredName,
   isImage,
+  isPlaylistName,
   isRemotePath,
   isVideo,
   joinPath,
@@ -413,6 +430,12 @@ export default function App() {
   /** type-ahead: the letters typed since the last pause, and when they were typed */
   const typedBuf = useRef('')
   const typedAt = useRef(0)
+  /** the pointer is over this document, so the drag has not left for an outside target */
+  const dragInside = useRef(false)
+  /** the current gesture started on one of our rows; a foreign drag must never start a native one */
+  const dragOwned = useRef(false)
+  /** a native drag was already handed to main for this gesture; never start a second one */
+  const dragHandedOver = useRef(false)
   const [reveal, setReveal] = useState<{ pane: number; path: string; tick: number }>({
     pane: -1,
     path: '',
@@ -444,6 +467,124 @@ export default function App() {
     else disposeMusic()
     // the saved list is read when the module is switched on, not on every prefs write
   }, [prefs.musicPlayer])
+  // The standalone window mirrors this store. Position changes 4×/second; everything else is
+  // pushed at once, so a click in either window shows up in the other without a visible lag.
+  useEffect(() => {
+    if (!prefs.musicPlayer) return
+    let last = ''
+    let lastAt = 0
+    let lastPos = -1
+    const push = () => {
+      const m = musicState()
+      const base = `${m.items.join('\u0000')}|${m.index}|${m.playing}|${m.dur}|${m.volume}`
+      const at = Date.now()
+      const state = {
+        items: m.items,
+        index: m.index,
+        playing: m.playing,
+        pos: m.pos,
+        dur: m.dur,
+        volume: m.volume
+      }
+      if (base !== last) {
+        last = base
+        lastAt = at
+        lastPos = m.pos
+        musicBridge.push(state)
+      } else if (m.pos !== lastPos && at - lastAt >= 250) {
+        lastAt = at
+        lastPos = m.pos
+        musicBridge.push(state)
+      }
+    }
+    push()
+    return subscribeMusic(push)
+  }, [prefs.musicPlayer])
+  // The window only sends commands: the one <audio> element and its store stay in this window.
+  useEffect(() => {
+    if (!prefs.musicPlayer) return
+    return musicBridge.onCmd((cmd) => {
+      switch (cmd.type) {
+        case 'toggle':
+          toggleMusic()
+          break
+        case 'next':
+          stepMusic(1)
+          break
+        case 'prev':
+          stepMusic(-1)
+          break
+        case 'play':
+          playAt(cmd.index)
+          break
+        case 'seek':
+          seekMusic(cmd.pos)
+          break
+        case 'volume':
+          setVolume(cmd.volume)
+          break
+        case 'remove':
+          removeMusic(cmd.index)
+          break
+      }
+    })
+  }, [prefs.musicPlayer])
+  // Closing the standalone music window stops the sound and hides the preview music panel: the one
+  // <audio> element lives in this window, so the controller window closing alone would leave it on.
+  useEffect(() => {
+    if (!prefs.musicPlayer) return
+    return api.player.onWindowClosed((kind) => {
+      if (kind === 'music') closeMusic()
+    })
+  }, [prefs.musicPlayer])
+  // A native drag owns the mouse, and Chromium swallows a drop on the drag's own source, so it is
+  // not started on `dragstart` (that made every in-window drop vanish). It is handed to main only
+  // once the pointer actually leaves the window, which is the only case that needs an outside target.
+  useEffect(() => {
+    const onStart = (ev: DragEvent) => {
+      dragInside.current = true
+      // only a file drag of our own rows may hand over; a bookmark drag must never reuse old paths
+      dragOwned.current = ev.dataTransfer?.types.includes('application/x-mfm') ?? false
+      dragHandedOver.current = false
+    }
+    const onEnter = () => {
+      dragInside.current = true
+    }
+    const onLeave = (ev: DragEvent) => {
+      // relatedTarget === null means the pointer left the document, not just a child element
+      if (ev.relatedTarget) return
+      dragInside.current = false
+      if (!dragOwned.current || dragHandedOver.current) return
+      const paths = dragOutPaths()
+      if (!paths.length) return
+      window.setTimeout(() => {
+        // only hand over if the pointer is still outside (no dragenter came back in)
+        if (!dragOwned.current || dragInside.current || dragHandedOver.current) return
+        const mine = dragOutPaths()
+        if (!mine.length) return
+        dragHandedOver.current = true
+        dragLog(`native hand over ${mine.length} path(s)`)
+        api.dragOut(mine)
+      }, 80)
+    }
+    const onEnd = () => {
+      dragInside.current = false
+      dragOwned.current = false
+      dragHandedOver.current = false
+    }
+    window.addEventListener('dragstart', onStart)
+    window.addEventListener('dragenter', onEnter)
+    window.addEventListener('dragleave', onLeave)
+    window.addEventListener('drop', onEnd)
+    window.addEventListener('dragend', onEnd)
+    return () => {
+      window.removeEventListener('dragstart', onStart)
+      window.removeEventListener('dragenter', onEnter)
+      window.removeEventListener('dragleave', onLeave)
+      window.removeEventListener('drop', onEnd)
+      window.removeEventListener('dragend', onEnd)
+    }
+  }, [])
   const theme: 'dark' | 'light' =
     prefs.theme === 'system' ? (systemDark ? 'dark' : 'light') : prefs.theme
   const setTheme = (t: Prefs['theme'] | ((cur: Prefs['theme']) => Prefs['theme'])) =>
@@ -589,7 +730,8 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.sidebarTone = String(prefs.sidebarTone)
-  }, [prefs.sidebarTone])
+    document.documentElement.dataset.contentTone = String(prefs.contentTone)
+  }, [prefs.sidebarTone, prefs.contentTone])
 
   useEffect(() => {
     document.documentElement.dataset.tabShape = prefs.tabShape
@@ -1617,7 +1759,8 @@ export default function App() {
       return
     }
     openMusicPlaylist(tracks)
-    setPreviewOn(true)
+    // opening the playlist is a request to see it: the standalone window shows the same state
+    void api.app.openViewer('music', path)
     setNote(t('{n} قطعه از پلی‌لیست بارگذاری شد', { n: fa(tracks.length) }))
   }
 
@@ -1690,6 +1833,25 @@ export default function App() {
     if (viewOf(i) === 'grid' && opensInEditor(e)) {
       void api.app.openViewer('editor', e.path)
       return
+    }
+    // with the player on, a media double-click belongs to the player window, never to the preview
+    if (prefs.musicPlayer && !panes?.[i].archive && !panes?.[i].virtual) {
+      // the player window replaces the side preview; an already-open panel must not keep the video
+      setPreviewOn(false)
+      setPreviewPath(null)
+      if (isPlaylistName(e.name)) {
+        void openPlaylistFile(e.path)
+        return
+      }
+      if (isAudioFile(e.path)) {
+        openMusicPlaylist([e.path]) // the clicked track becomes the thing that plays
+        void api.app.openViewer('music', e.path)
+        return
+      }
+      if (isVideo(e.ext)) {
+        void api.app.openViewer('video', e.path)
+        return
+      }
     }
     const action = openAction(e, prefs.doubleClick, {
       hasDefaultApp: !!prefs.defaultApps[e.ext],
@@ -3345,6 +3507,21 @@ export default function App() {
       if (musicState().open) closeMusic()
       else openMusicPanel()
       setPreviewOn(true)
+    },
+    videoWindow: () => {
+      const picked = panes![active].sel[0]
+      const sel = picked ? entryOf(active, picked) : null
+      const target =
+        sel && !sel.dir && isVideo(sel.ext)
+          ? sel
+          : visibleOf(active).find((e) => !e.dir && isVideo(e.ext))
+      if (!target) {
+        setNote(t('ویدیویی در این پوشه نیست'))
+        return
+      }
+      setPreviewOn(false)
+      setPreviewPath(null)
+      void api.app.openViewer('video', target.path)
     },
     gallery: () => openGallery(active),
     flat: () => void runFlat(active),

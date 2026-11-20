@@ -11,7 +11,8 @@ import {
   net,
   protocol,
   screen,
-  shell
+  shell,
+  type Rectangle
 } from 'electron'
 import {
   createReadStream,
@@ -34,6 +35,7 @@ import { hashMany } from './hash.ts'
 import { iconSetPaths, iconsIn, themeDirs } from './icons.ts'
 import { readNativeFolderLook } from './folderlook.ts'
 import { preview } from './preview.ts'
+import { probeMedia } from './ffmpeg.ts'
 import { parseByteRange } from './player-core.ts'
 import {
   cancelPlayerJob,
@@ -932,10 +934,56 @@ function forceForeground(w: BrowserWindow | null): void {
  * macOS refuses native full screen for a transparent window: `setFullScreen(true)` returns
  * without resizing anything, so ⌃⌘F looked dead. Simple full screen emulates it (the app manages
  * its own window) and works with our frameless, transparent chrome.
+ *
+ * Other window managers (KWin under some settings, Xvfb without a WM) accept `setFullScreen` but
+ * keep the frame/bounds. A frameless window placed on the display rect looks identical, so the
+ * fallback below enforces that geometry and remembers the old bounds to restore on exit.
  */
+const saved = new Map<number, Rectangle>()
+
 function applyFullscreen(w: BrowserWindow, on: boolean): void {
-  if (process.platform === 'darwin') w.setSimpleFullScreen(on)
-  else w.setFullScreen(on)
+  if (process.platform === 'darwin') {
+    w.setSimpleFullScreen(on)
+    return
+  }
+  w.setFullScreen(on)
+  setTimeout(() => {
+    if (w.isDestroyed()) return
+    let forced = false
+    if (on) {
+      const b = w.getBounds()
+      const d = screen.getDisplayMatching(b).bounds
+      const covered =
+        b.x === d.x && b.y === d.y && b.width === d.width && b.height === d.height
+      if (!w.isFullScreen() || !covered) {
+        if (!saved.has(w.id)) saved.set(w.id, b)
+        w.setBounds(d)
+        w.setAlwaysOnTop(true)
+        w.setMenuBarVisibility(false)
+        w.focus()
+        forced = true
+      }
+    } else {
+      const b = saved.get(w.id)
+      if (b) {
+        saved.delete(w.id)
+        w.setAlwaysOnTop(false)
+        w.setBounds(b)
+        w.focus()
+        forced = true
+      }
+    }
+    console.log(
+      'FULLSCREEN ' +
+        JSON.stringify({
+          on,
+          forced,
+          bounds: w.getBounds(),
+          fullscreen: w.isFullScreen(),
+          displays: screen.getAllDisplays().map((d) => d.bounds)
+        })
+    )
+  }, 260)
 }
 
 /**
@@ -1131,17 +1179,53 @@ async function winIconFile(source: string, dir: string): Promise<string> {
 const senderWindow = (e: Electron.IpcMainInvokeEvent): BrowserWindow | null =>
   BrowserWindow.fromWebContents(e.sender) ?? win
 
-/** Track the standalone viewer/editor windows so quitting closes them too. */
+/** Track the standalone viewer/editor/music windows so quitting closes them too. */
 const childWindows = new Set<BrowserWindow>()
+/** One music window; a second open request brings the existing one forward. */
+let musicWindow: BrowserWindow | null = null
+/** One video window, single-instance like the music window. */
+let videoWindow: BrowserWindow | null = null
+/** Last state the player pushed, replayed to a music window that opens later. */
+let lastMusicState: unknown = null
+/** ffprobe durations by absolute path, invalidated by mtime. */
+const durationCache = new Map<string, { mtime: number; dur: number }>()
 
-function openStandalone(kind: 'gallery' | 'editor', file: string): { ok: true } | { error: string } {
+const STANDALONE_SIZE: Record<
+  'gallery' | 'editor' | 'music' | 'video',
+  { w: number; h: number; minW: number; minH: number }
+> = {
+  gallery: { w: 1100, h: 760, minW: 520, minH: 380 },
+  editor: { w: 980, h: 720, minW: 520, minH: 380 },
+  music: { w: 1080, h: 660, minW: 760, minH: 460 },
+  video: { w: 1200, h: 780, minW: 720, minH: 420 }
+}
+
+function openStandalone(
+  kind: 'gallery' | 'editor' | 'music' | 'video',
+  file: string
+): { ok: true } | { error: string } {
   try {
+    // The player itself lives in the main window: a second music window would have no sound.
+    if (kind === 'music' && musicWindow && !musicWindow.isDestroyed()) {
+      if (musicWindow.isMinimized()) musicWindow.restore()
+      musicWindow.show()
+      musicWindow.focus()
+      return { ok: true }
+    }
+    // The video window owns its own player, so a second one would only be a duplicate window.
+    if (kind === 'video' && videoWindow && !videoWindow.isDestroyed()) {
+      if (videoWindow.isMinimized()) videoWindow.restore()
+      videoWindow.show()
+      videoWindow.focus()
+      return { ok: true }
+    }
     const frameless = chrome.customTitlebar
+    const size = STANDALONE_SIZE[kind]
     const w = new BrowserWindow({
-      width: kind === 'gallery' ? 1100 : 980,
-      height: kind === 'gallery' ? 760 : 720,
-      minWidth: 520,
-      minHeight: 380,
+      width: size.w,
+      height: size.h,
+      minWidth: size.minW,
+      minHeight: size.minH,
       title: remoteName(file),
       frame: !frameless,
       hasShadow: false,
@@ -1157,11 +1241,37 @@ function openStandalone(kind: 'gallery' | 'editor', file: string): { ok: true } 
       }
     })
     childWindows.add(w)
-    w.on('closed', () => childWindows.delete(w))
+    w.on('closed', () => {
+      childWindows.delete(w)
+      if (musicWindow === w) musicWindow = null
+      if (videoWindow === w) videoWindow = null
+      // Closing a player window must stop playback that lives in the main window (the music
+      // element, or a preview video of the same file), rather than leaving it running there.
+      if (kind === 'music' || kind === 'video') {
+        if (win && !win.isDestroyed()) win.webContents.send('player:window-closed', kind)
+      }
+    })
+    if (kind === 'video') videoWindow = w
+    if (kind === 'music') {
+      musicWindow = w
+      // the renderer subscribes after this event, so preload keeps the last state as well
+      w.webContents.once('did-finish-load', () => {
+        if (lastMusicState !== null && !w.isDestroyed()) {
+          w.webContents.send('music:state', lastMusicState)
+        }
+      })
+    }
     w.on('maximize', () => w.webContents.send('window:maximized', true))
     w.on('unmaximize', () => w.webContents.send('window:maximized', false))
+    w.on('enter-full-screen', () => w.webContents.send('window:fullscreen-state', true))
+    w.on('leave-full-screen', () => w.webContents.send('window:fullscreen-state', false))
     w.once('ready-to-show', () => w.show())
-    const query = { [kind === 'gallery' ? 'gallery' : 'editor']: '1', path: file }
+    const query: Record<string, string> =
+      kind === 'music'
+        ? { music: '1', path: file }
+        : kind === 'video'
+          ? { video: '1', path: file }
+          : { [kind === 'gallery' ? 'gallery' : 'editor']: '1', path: file }
     const devUrl = process.env['ELECTRON_RENDERER_URL']
     if (devUrl) {
       const url = new URL(devUrl)
@@ -1548,6 +1658,18 @@ app.whenReady().then(async () => {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }
     }
+  })
+  // The music window mirrors state and sends commands; playback keeps living in the main window.
+  ipcMain.on('music:state', (e, state) => {
+    lastMusicState = state
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed() && w.webContents.id !== e.sender.id) {
+        w.webContents.send('music:state', state)
+      }
+    }
+  })
+  ipcMain.on('music:cmd', (_e, cmd) => {
+    if (win && !win.isDestroyed()) win.webContents.send('music:cmd', cmd)
   })
   ipcMain.on('app:dragOut', (e, files: string[]) => {
     void (async () => {
@@ -2186,7 +2308,7 @@ app.whenReady().then(async () => {
         else if (action === 'show') {
           win.show()
           win.focus()
-        } else if (action === 'fullscreen') win.setFullScreen(args.on !== false)
+        } else if (action === 'fullscreen') applyFullscreen(win, args.on !== false)
         else if (action === 'chrome') return chrome
         else throw new Error('action must be minimize, maximize, close, show, fullscreen or chrome')
         return { ok: true, maximized: win.isMaximized(), fullscreen: win.isFullScreen() }
@@ -2308,6 +2430,27 @@ app.whenReady().then(async () => {
     writeId3(a?.path ?? '', a?.fields ?? {})
   )
   ipcMain.handle('meta:audioRead', (_e, paths: string[]) => readAudioTags(Array.isArray(paths) ? paths : []))
+  // Track lengths for the standalone playlist: ffprobe once per path+mtime, errors simply omitted.
+  ipcMain.handle('audio:durations', async (_e, paths: string[]) => {
+    const out: Record<string, number> = {}
+    const list = Array.isArray(paths) ? paths.slice(0, 200) : []
+    for (const p of list) {
+      if (typeof p !== 'string' || !path.isAbsolute(p) || isRemotePath(p)) continue
+      const st = await fs.stat(p).catch(() => null)
+      if (!st || !st.isFile()) continue
+      const hit = durationCache.get(p)
+      if (hit && hit.mtime === st.mtimeMs) {
+        out[p] = hit.dur
+        continue
+      }
+      const probe = await probeMedia(p).catch(() => null)
+      const dur = Number(probe?.duration ?? 0)
+      if (!Number.isFinite(dur) || dur <= 0) continue
+      durationCache.set(p, { mtime: st.mtimeMs, dur })
+      out[p] = dur
+    }
+    return out
+  })
   ipcMain.handle('meta:audioWrite', (_e, a: AudioWriteRequest) =>
     writeAudioTags(a && Array.isArray(a.items) ? a : { items: [], cover: 'keep' })
   )
@@ -2554,8 +2697,19 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:launchPath', () => firstPath)
   ipcMain.handle('app:openViewer', (_e, a: { kind?: string; path?: string }) => {
     const p = a?.path ?? ''
-    if (!isRemotePath(p) && !path.isAbsolute(p)) return { error: 'bad_path' }
-    return openStandalone(a?.kind === 'editor' ? 'editor' : 'gallery', p)
+    const kind =
+      a?.kind === 'editor'
+        ? 'editor'
+        : a?.kind === 'music'
+          ? 'music'
+          : a?.kind === 'video'
+            ? 'video'
+            : 'gallery'
+    // the music window is also a view of the playlist, so an empty path is legitimate there
+    if (!isRemotePath(p) && !path.isAbsolute(p) && !(kind === 'music' && p === '')) {
+      return { error: 'bad_path' }
+    }
+    return openStandalone(kind, p)
   })
   ipcMain.handle('fs:symlink', (_e, target: string, linkPath: string) => {
     if (isRemotePath(target) || isRemotePath(linkPath)) {

@@ -2,7 +2,7 @@ import { useSyncExternalStore, useEffect, useState } from 'react'
 import { t } from './i18n.ts'
 import { api, type Tags } from './api'
 import { baseName, clock, fa } from './format'
-import { AudioIcon, ForwardIcon, PauseIcon, PlayIcon, RewindIcon, SaveIcon, TrashIcon, XIcon } from './Icons'
+import { AudioIcon, ForwardIcon, MaximizeIcon, PauseIcon, PlayIcon, RewindIcon, SaveIcon, TrashIcon, XIcon } from './Icons'
 import {
   clearMusic,
   closeMusic,
@@ -64,6 +64,13 @@ export function MusicPlayer({ onNote }: { onNote?(msg: string): void }) {
           {now || t('پلی‌لیست خالی است')}
         </span>
         <span className="dim">{t('{n} قطعه', { n: fa(m.items.length) })}</span>
+        <button
+          className="tb"
+          title={t('پنجرهٔ موسیقی')}
+          onClick={() => void api.app.openViewer('music', current)}
+        >
+          <MaximizeIcon />
+        </button>
         <button
           className="tb"
           title={t('ذخیرهٔ پلی‌لیست')}

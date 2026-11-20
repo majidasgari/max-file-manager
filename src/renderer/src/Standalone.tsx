@@ -20,7 +20,7 @@ function useNote(): { note: string; say(msg: string): void } {
 }
 
 /** Shared bootstrap: preferences, theme and the language of the main window. */
-function useStandalonePrefs(): Prefs | null {
+export function useStandalonePrefs(): Prefs | null {
   const [prefs, setPrefs] = useState<Prefs | null>(null)
   useEffect(() => {
     let live = true

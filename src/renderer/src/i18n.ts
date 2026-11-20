@@ -392,6 +392,13 @@ const EN: Record<string, string> = {
   'مقصد:': 'Destination:',
   'بازگردانی': 'Undo',
   'ظاهر و رنگ': 'Appearance',
+  'زبان و ظاهر': 'Language and appearance',
+  'فونت رابط': 'Interface font',
+  'کادر پنجره': 'Window frame',
+  'پنجره و پنل‌ها': 'Window and panels',
+  'تفاوت رنگ ناحیهٔ فایل‌ها با هدر': 'File-area vs header color difference',
+  '۰ = تفاوت امروز، ۳ = ناحیهٔ فایل‌ها دقیقاً هم‌رنگ هدر':
+    '0 = today’s difference, 3 = the file area exactly matches the header',
   'فونت رابط کاربری': 'Interface font',
   'نام فونت نصب‌شده؛ خالی = وزیرمتن': 'Installed font name; empty = Vazirmatn',
   'نمونهٔ متن': 'Sample text',
@@ -1225,6 +1232,7 @@ const EN: Record<string, string> = {
   'باز کردن بیرونی': 'Open externally',
   'خروج از حالت سینما (Esc)': 'Exit cinema mode (Esc)',
   'حالت سینما (F)': 'Cinema mode (F)',
+  'خروج از تمام‌صفحه (Esc)': 'Exit fullscreen (Esc)',
   'فصل {n}': 'Chapter {n}',
   'موقعیت پخش': 'Playback position',
   '۱۰ ثانیه عقب (←)': '10 seconds back (←)',
@@ -1233,7 +1241,6 @@ const EN: Record<string, string> = {
   'تکرار': 'Loop',
   'ذخیرهٔ فریم': 'Save frame',
   'بی‌صدا': 'Mute',
-  'بلندی صدا': 'Volume',
   'این فایل جریان ویدئو ندارد': 'This file has no video stream',
   'FFmpeg برای تبدیل این ویدئو انکودر مناسبی ندارد':
     'FFmpeg has no suitable encoder for this video',
@@ -1596,7 +1603,10 @@ const EN: Record<string, string> = {
   'OAuth · ورود در مرورگر': 'OAuth · sign in with a browser',
   'QNAP · WebDAV': 'QNAP · WebDAV',
   'WebDAV · رمز برنامه': 'WebDAV · app password',
-  'پخش‌کنندهٔ موسیقی': 'Music player',
+  'پخش‌کنندهٔ موسیقی و ویدیو': 'Music and video player',
+  'پنجرهٔ ویدیو': 'Video window',
+  'ویدیویی در این پوشه نیست': 'No video in this folder',
+  'نمایش/پنهان‌کردن فهرست': 'Show/hide list',
   'پلی‌لیست در پنل پیش‌نمایش؛ خاموش = این ماژول هیچ بخشی بار نمی‌کند و حافظه نمی‌گیرد':
     'Playlist in the preview panel; off means this module loads nothing and holds no memory',
   'قطعهٔ قبلی': 'Previous track',
@@ -1616,12 +1626,19 @@ const EN: Record<string, string> = {
   'پاک کردن پلی‌لیست': 'Clear the playlist',
   'افزودن به پلی‌لیست موسیقی': 'Add to music playlist',
   'افزودن به پلی‌لیست موسیقی ({n})': 'Add to music playlist ({n})',
-  'موسیقی': 'Music',
+  'موسیقی و ویدیو': 'Music and video',
+  'تصویر و گالری': 'Image and gallery',
   'قطعهٔ {n}': 'Track {n}',
   'پخش‌کنندهٔ موسیقی — افزودن و پخش': 'Music player — add and play',
   '{n} فایل به پلی‌لیست موسیقی اضافه شد': 'Added {n} files to the music playlist',
   'در این پلی‌لیست قطعهٔ محلی نبود': 'That playlist holds no local track',
-  '{n} قطعه از پلی‌لیست بارگذاری شد': 'Loaded {n} track(s) from the playlist'
+  '{n} قطعه از پلی‌لیست بارگذاری شد': 'Loaded {n} track(s) from the playlist',
+  'پنجرهٔ موسیقی': 'Music window',
+  'بلندی صدا': 'Volume',
+  'نمایش/پنهان‌کردن پلی‌لیست': 'Show/hide playlist',
+  'کاور ندارد': 'No cover',
+  'مدت نامشخص': 'unknown length',
+  'حالت فشرده': 'Compact mode'
 }
 
 export function t(key: string, vars?: Record<string, string | number>): string {
