@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Entry, type PortalRequestData } from './api'
 import { matchesPortalFilter } from '../../shared/portal-filters.ts'
-import { cleanMarkNames, crumbs, baseName, fa, fmtDate, fmtSize, isImage, isVideo, joinPath, sortEntries, thumbUrl, type SortKey } from './format'
+import { cleanMarkNames, crumbs, baseName, fa, fmtDate, fmtSize, groupEntries, isImage, isVideo, joinPath, orderEntries, thumbUrl, type GroupKey, type SortKey } from './format'
 import { ArrowUpIcon, ChevronDownIcon, ChevronLeftIcon, CompactIcon, ConfirmIcon, EntryIcon, EyeIcon, EyeOffIcon, FolderIcon, GridIcon, HomeIcon, ListIcon, PlayIcon, PreviewIcon, RefreshIcon, StarIcon } from './Icons'
 import { PreviewPanel } from './PreviewPanel'
+import { type FolderView } from './Pane'
 import { PURE_ICON_SET } from './pure-icons'
-import { mergePrefs, migrateLegacy, type Prefs } from './prefs'
+import { folderFormatFor, mergePrefs, migrateLegacy, type Prefs } from './prefs'
 import { t } from './i18n'
 import { applyPrefs } from './apply-prefs'
 
 const ROW_H = 38
+const GROUP_H = 24
 const GRID_TILE_W = 112
 const GRID_TILE_H = 130
 const COMPACT_ROW = 30
@@ -38,6 +40,8 @@ export function PortalPicker() {
   const [viewport, setViewport] = useState(400)
   const [contentWidth, setContentWidth] = useState(600)
   const [view, setView] = useState<View>('list')
+  const [fmt, setFmt] = useState<FolderView | null>(null)
+  const [group, setGroup] = useState<GroupKey>('none')
   const [previewOpen, setPreviewOpen] = useState(true)
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: 'name', asc: true })
   const [overwrite, setOverwrite] = useState<string | null>(null)
@@ -49,6 +53,9 @@ export function PortalPicker() {
   const scroller = useRef<HTMLDivElement>(null)
   const anchor = useRef(0)
   const loadGeneration = useRef(0)
+  // `load` is a `useCallback([])`, so it must read these defaults from refs, not the first render's prefs.
+  const rememberRef = useRef(true)
+  const defaultGroupRef = useRef<GroupKey>('none')
 
   useEffect(() => {
     let live = true
@@ -67,6 +74,8 @@ export function PortalPicker() {
           : Object.keys(systemIcons).length ? systemIcons : PURE_ICON_SET
       applyPrefs(merged)
       setPrefs(merged)
+      rememberRef.current = merged.rememberFolderView
+      defaultGroupRef.current = merged.groupBy as GroupKey
       setShowHidden(merged.showHidden)
       setHome(homeDir)
       setIconSet(icons)
@@ -105,6 +114,13 @@ export function PortalPicker() {
       return null
     })
     if (!listing || generation !== loadGeneration.current) return
+    // A folder's own format lives in its .mfm.json; only honor the view when the user asked for that.
+    const stored = (listing.format as FolderView | null) ?? null
+    const next = stored ? folderFormatFor(stored, rememberRef.current) : null
+    setFmt(next)
+    if (next?.view) setView(next.view)
+    if (next?.sortKey) setSort({ key: next.sortKey as SortKey, asc: next.sortAsc ?? true })
+    setGroup((next?.group ?? defaultGroupRef.current) as GroupKey)
     setDir(listing.path)
     setEntries(listing.entries)
     setSelected([])
@@ -114,6 +130,12 @@ export function PortalPicker() {
     scroller.current?.scrollTo({ top: 0 })
     setLoading(false)
   }, [])
+
+  const saveFormat = (patch: Partial<FolderView>) => {
+    const merged = folderFormatFor({ ...(fmt ?? {}), ...patch }, rememberRef.current)
+    setFmt(merged)
+    if (dir && rememberRef.current) void api.setFormat(dir, merged).catch(() => undefined)
+  }
 
   useEffect(() => {
     if (dir) void load(dir, showHidden)
@@ -152,19 +174,24 @@ export function PortalPicker() {
   }, [load, showHidden])
 
   const activeFilter = request?.filters[filterIndex] ?? null
-  const ordered = useMemo(() => {
+  const sorted = useMemo(() => {
     const kept = entries.filter((e) => e.dir || matchesPortalFilter(e.name, e.ext, activeFilter))
-    return sortEntries(kept, sort.key, sort.asc, true)
-  }, [entries, activeFilter, sort])
+    // Same rule as the file manager: folders lead for name/size, and interleave for dates etc.
+    const groupFolders = sort.key === 'name' || sort.key === 'size'
+    return orderEntries(kept, sort.key, sort.asc, '', groupFolders && (prefs?.foldersFirst ?? true))
+  }, [entries, activeFilter, sort, prefs?.foldersFirst])
+  const groups = useMemo(() => groupEntries(sorted, group), [sorted, group])
+  // Every index (selection, active cursor, keyboard, count) is a flat index into this list.
+  const flat = useMemo(() => groups.flatMap((g) => g.entries), [groups])
 
   useEffect(() => {
-    if (active >= ordered.length) setActive(Math.max(0, ordered.length - 1))
-  }, [active, ordered.length])
+    if (active >= flat.length) setActive(Math.max(0, flat.length - 1))
+  }, [active, flat.length])
 
   // A column click changes the visual order; keep the keyboard cursor on the selected row.
   useEffect(() => {
     if (!selected.length) return
-    const index = ordered.findIndex((e) => e.path === selected[0])
+    const index = flat.findIndex((e) => e.path === selected[0])
     if (index >= 0) {
       setActive(index)
       anchor.current = index
@@ -172,7 +199,7 @@ export function PortalPicker() {
     // Selection is deliberately omitted: Ctrl-click may keep the first selected row while focusing
     // another one, and re-sorting is the only case where the index must be repaired.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordered])
+  }, [flat])
 
   // All three layouts stay windowed: only the rows/tiles touching the viewport are mounted.
   const isList = view === 'list'
@@ -184,22 +211,66 @@ export function PortalPicker() {
   const itemH = isList ? ROW_H : view === 'compact' ? COMPACT_ROW : GRID_TILE_H
   const compactW = Math.max(120, Math.floor((Math.max(1, contentWidth) - 8) / cols))
   const gridW = Math.max(96, Math.floor((Math.max(1, contentWidth) - 8) / cols))
-  const rowCount = isList ? ordered.length : Math.ceil(ordered.length / cols)
+
+  // Group headers only exist in the list view; grid/compact keep the grouped order without headings.
+  const listLayout = useMemo(() => {
+    const items: ({ kind: 'head'; label: string } | { kind: 'entry'; entry: Entry; index: number })[] = []
+    const tops: number[] = []
+    const heights: number[] = []
+    const entryRow: number[] = []
+    let y = 0
+    let index = 0
+    for (const g of groups) {
+      if (g.label) {
+        items.push({ kind: 'head', label: g.label })
+        tops.push(y)
+        heights.push(GROUP_H)
+        y += GROUP_H
+      }
+      for (const entry of g.entries) {
+        entryRow[index] = items.length
+        items.push({ kind: 'entry', entry, index })
+        tops.push(y)
+        heights.push(ROW_H)
+        y += ROW_H
+        index++
+      }
+    }
+    return { items, tops, heights, entryRow, total: y }
+  }, [groups])
+
+  // First item whose bottom edge is past `offset`; binary search because list rows have mixed heights.
+  const listAt = (offset: number): number => {
+    let lo = 0
+    let hi = listLayout.items.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (listLayout.tops[mid] + listLayout.heights[mid] <= offset) lo = mid + 1
+      else hi = mid
+    }
+    return lo
+  }
+
+  const rowCount = isList ? 0 : Math.ceil(flat.length / cols)
   const startRow = Math.max(0, Math.floor(scrollTop / itemH) - OVERSCAN)
   const endRow = Math.min(rowCount, Math.ceil((scrollTop + viewport) / itemH) + OVERSCAN)
-  const startIndex = isList ? startRow : startRow * cols
-  const endIndex = isList ? endRow : Math.min(ordered.length, endRow * cols)
-  const visibleEntries = ordered.slice(startIndex, endIndex)
+  const startIndex = isList ? Math.max(0, listAt(scrollTop) - OVERSCAN) : startRow * cols
+  const endIndex = isList
+    ? Math.min(listLayout.items.length, listAt(scrollTop + viewport) + 1 + OVERSCAN)
+    : Math.min(flat.length, endRow * cols)
+  const visibleItems = isList ? listLayout.items.slice(startIndex, endIndex) : []
+  const visibleEntries = isList ? [] : flat.slice(startIndex, endIndex)
+  const spacerHeight = isList ? listLayout.total : rowCount * itemH
 
   /** The side preview follows the selection, and in a save dialog it also follows a typed name. */
   const previewEntry = useMemo(() => {
-    const picked = ordered.find((e) => selected.includes(e.path))
+    const picked = flat.find((e) => selected.includes(e.path))
     if (picked) return picked
     if (request?.operation === 'save' && fileName.trim()) {
-      return ordered.find((e) => e.name === fileName.trim()) ?? null
+      return flat.find((e) => e.name === fileName.trim()) ?? null
     }
     return null
-  }, [ordered, selected, request, fileName])
+  }, [flat, selected, request, fileName])
 
   useEffect(() => {
     // the same list the file manager's sidebar shows: bookmarks live in the shared state
@@ -290,17 +361,24 @@ export function PortalPicker() {
   }
 
   const changeSort = (key: SortKey) => {
-    setSort((current) => current.key === key ? { key, asc: !current.asc } : { key, asc: true })
+    const next = sort.key === key ? { key, asc: !sort.asc } : { key, asc: true }
+    setSort(next)
+    saveFormat({ sortKey: next.key, sortAsc: next.asc })
     setOverwrite(null)
   }
   const sortMark = (key: SortKey) => sort.key === key ? (sort.asc ? ' ▲' : ' ▼') : ''
+
+  const saveView = (next: View) => {
+    setView(next)
+    saveFormat({ view: next })
+  }
 
   const selectEntry = (entry: Entry, index: number, ev: React.MouseEvent) => {
     let next = [entry.path]
     if (request?.multiple && ev.shiftKey) {
       const from = Math.min(anchor.current, index)
       const to = Math.max(anchor.current, index)
-      next = ordered.slice(from, to + 1).map((e) => e.path)
+      next = flat.slice(from, to + 1).map((e) => e.path)
     } else if (request?.multiple && (ev.ctrlKey || ev.metaKey)) {
       next = selected.includes(entry.path) ? selected.filter((p) => p !== entry.path) : [...selected, entry.path]
       anchor.current = index
@@ -332,21 +410,22 @@ export function PortalPicker() {
         ev.key === 'ArrowDown' || ev.key === 'ArrowRight'
           ? view === 'list' ? 1 : ev.key === 'ArrowDown' ? cols : 1
           : view === 'list' ? -1 : ev.key === 'ArrowUp' ? -cols : -1
-      const next = Math.max(0, Math.min(ordered.length - 1, active + delta))
+      const next = Math.max(0, Math.min(flat.length - 1, active + delta))
       setActive(next)
-      if (!ev.ctrlKey && !ev.metaKey) setSelected(ordered[next] ? [ordered[next].path] : [])
+      if (!ev.ctrlKey && !ev.metaKey) setSelected(flat[next] ? [flat[next].path] : [])
       if (ev.shiftKey && request?.multiple) {
         const from = Math.min(anchor.current, next)
         const to = Math.max(anchor.current, next)
-        setSelected(ordered.slice(from, to + 1).map((e) => e.path))
+        setSelected(flat.slice(from, to + 1).map((e) => e.path))
       } else anchor.current = next
-      const row = isList ? next : Math.floor(next / cols)
-      const top = row * itemH
+      const itemIndex = isList ? listLayout.entryRow[next] : Math.floor(next / cols)
+      const top = itemIndex === undefined ? 0 : isList ? listLayout.tops[itemIndex] : itemIndex * itemH
+      const height = itemIndex === undefined ? itemH : isList ? listLayout.heights[itemIndex] : itemH
       const el = scroller.current
       if (el) {
         if (top < el.scrollTop) el.scrollTo({ top })
-        else if (top + itemH > el.scrollTop + el.clientHeight) {
-          el.scrollTo({ top: top + itemH - el.clientHeight })
+        else if (top + height > el.scrollTop + el.clientHeight) {
+          el.scrollTo({ top: top + height - el.clientHeight })
         }
       }
     } else if (ev.key === 'F3') {
@@ -354,12 +433,12 @@ export function PortalPicker() {
       setPreviewOpen((open) => !open)
     } else if (ev.key === 'Enter') {
       ev.preventDefault()
-      const entry = ordered[active]
+      const entry = flat[active]
       if (entry?.dir) openEntry(entry)
       else void accept()
     } else if (ev.key.toLowerCase() === 'a' && (ev.ctrlKey || ev.metaKey) && request?.multiple) {
       ev.preventDefault()
-      setSelected(ordered.filter((e) => request.directory === e.dir || (!request.directory && !e.dir)).map((e) => e.path))
+      setSelected(flat.filter((e) => request.directory === e.dir || (!request.directory && !e.dir)).map((e) => e.path))
     }
   }
 
@@ -381,7 +460,9 @@ export function PortalPicker() {
             value={`${sort.key}:${sort.asc ? 'asc' : 'desc'}`}
             onChange={(e) => {
               const [key, asc] = e.target.value.split(':') as [SortKey, 'asc' | 'desc']
-              setSort({ key, asc: asc === 'asc' })
+              const next = { key, asc: asc === 'asc' }
+              setSort(next)
+              saveFormat({ sortKey: next.key, sortAsc: next.asc })
               setOverwrite(null)
             }}
           >
@@ -392,10 +473,29 @@ export function PortalPicker() {
             <option value="mtime:desc">{t('تاریخ')} ↓</option>
             <option value="mtime:asc">{t('تاریخ')} ↑</option>
           </select>
+          <select
+            className="picker-sort"
+            dir="auto"
+            title={t('گروه‌بندی')}
+            aria-label={t('گروه‌بندی')}
+            value={group}
+            onChange={(e) => {
+              const next = e.target.value as GroupKey
+              setGroup(next)
+              saveFormat({ group: next })
+            }}
+          >
+            <option value="none">{t('بدون گروه‌بندی')}</option>
+            <option value="name">{t('نام')}</option>
+            <option value="type">{t('نوع')}</option>
+            <option value="size">{t('اندازه')}</option>
+            <option value="date">{t('تاریخ')}</option>
+            <option value="ext">{t('پسوند')}</option>
+          </select>
           <div className="view-switch" role="group" aria-label={t('تعویض نما')}>
-            <button className={`tb ${view === 'list' ? 'on' : ''}`} title={t('نمای فهرست')} aria-pressed={view === 'list'} onClick={() => setView('list')}><ListIcon /></button>
-            <button className={`tb ${view === 'grid' ? 'on' : ''}`} title={t('نمای شبکه')} aria-pressed={view === 'grid'} onClick={() => setView('grid')}><GridIcon /></button>
-            <button className={`tb ${view === 'compact' ? 'on' : ''}`} title={t('نمای فشرده')} aria-pressed={view === 'compact'} onClick={() => setView('compact')}><CompactIcon /></button>
+            <button className={`tb ${view === 'list' ? 'on' : ''}`} title={t('نمای فهرست')} aria-pressed={view === 'list'} onClick={() => saveView('list')}><ListIcon /></button>
+            <button className={`tb ${view === 'grid' ? 'on' : ''}`} title={t('نمای شبکه')} aria-pressed={view === 'grid'} onClick={() => saveView('grid')}><GridIcon /></button>
+            <button className={`tb ${view === 'compact' ? 'on' : ''}`} title={t('نمای فشرده')} aria-pressed={view === 'compact'} onClick={() => saveView('compact')}><CompactIcon /></button>
           </div>
           <button
             className={`tb ${previewOpen ? 'on' : ''}`}
@@ -430,7 +530,12 @@ export function PortalPicker() {
       <div className="picker-path-row">
         {address === null ? (
           <nav className="picker-crumbs" aria-label={t('نشانی')} onDoubleClick={() => setAddress(dir)}>
-            {crumbs(dir).map((c) => <button key={c.path} dir="auto" onClick={() => navigate(c.path)}>{c.name}</button>)}
+            {crumbs(dir).map((c, i) => (
+              <Fragment key={c.path}>
+                {i > 0 && <ChevronLeftIcon size={13} />}
+                <button dir="auto" onClick={() => navigate(c.path)}>{c.name}</button>
+              </Fragment>
+            ))}
           </nav>
         ) : (
           <input
@@ -488,28 +593,45 @@ export function PortalPicker() {
             <button className={sort.key === 'mtime' ? 'on' : ''} onClick={() => changeSort('mtime')}>{t('تاریخ')}{sortMark('mtime')}</button>
           </div>}
           <div className="picker-scroll" ref={scroller} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
-            <div className="picker-spacer" style={{ height: rowCount * itemH }}>
-              {visibleEntries.map((entry, offset) => {
-                const index = startIndex + offset
-                const row = isList ? index : Math.floor(index / cols)
-                const col = isList ? 0 : index % cols
-                const on = selected.includes(entry.path)
-                const activeClass = index === active ? ' active' : ''
-                if (view === 'list') {
+            <div className="picker-spacer" style={{ height: spacerHeight }}>
+              {isList && visibleItems.map((item, offset) => {
+                const at = startIndex + offset
+                if (item.kind === 'head') {
                   return (
                     <div
-                      key={entry.path}
-                      className={`picker-row${on ? ' selected' : ''}${activeClass}`}
-                      style={{ top: row * ROW_H }}
-                      onClick={(e) => selectEntry(entry, index, e)}
-                      onDoubleClick={() => openEntry(entry)}
+                      key={`head:${at}`}
+                      className="picker-group-head"
+                      style={{ top: listLayout.tops[at], height: GROUP_H }}
+                      dir="auto"
                     >
-                      <span className="picker-name"><EntryIcon entry={entry} size={18} iconSet={iconSet} /><span dir="auto">{entry.name}</span></span>
-                      <span className="picker-size">{entry.dir ? '—' : fmtSize(entry.size, false, prefs.sizeFormat)}</span>
-                      <span className="picker-date" dir="ltr">{fmtDate(entry.mtime, prefs.dateFormat)}</span>
+                      {item.label}
                     </div>
                   )
                 }
+                const entry = item.entry
+                const index = item.index
+                const on = selected.includes(entry.path)
+                const activeClass = index === active ? ' active' : ''
+                return (
+                  <div
+                    key={entry.path}
+                    className={`picker-row${on ? ' selected' : ''}${activeClass}`}
+                    style={{ top: listLayout.tops[at] }}
+                    onClick={(e) => selectEntry(entry, index, e)}
+                    onDoubleClick={() => openEntry(entry)}
+                  >
+                    <span className="picker-name"><EntryIcon entry={entry} size={18} iconSet={iconSet} /><span dir="auto">{entry.name}</span></span>
+                    <span className="picker-size">{entry.dir ? '—' : fmtSize(entry.size, false, prefs.sizeFormat)}</span>
+                    <span className="picker-date" dir="ltr">{fmtDate(entry.mtime, prefs.dateFormat)}</span>
+                  </div>
+                )
+              })}
+              {!isList && visibleEntries.map((entry, offset) => {
+                const index = startIndex + offset
+                const row = Math.floor(index / cols)
+                const col = index % cols
+                const on = selected.includes(entry.path)
+                const activeClass = index === active ? ' active' : ''
                 if (view === 'compact') {
                   return (
                     <div
@@ -554,6 +676,7 @@ export function PortalPicker() {
                       <EntryIcon entry={entry} size={pic ? Math.round(thumbSize * 0.55) : thumbSize * 0.62} iconSet={iconSet} />
                       {pic && (
                         <img
+                          className="picker-tile-photo"
                           src={thumbUrl(entry.path, 256, `${Math.round(entry.mtime)}-${entry.size}`)}
                           alt=""
                           loading="lazy"
@@ -568,7 +691,7 @@ export function PortalPicker() {
                 )
               })}
             </div>
-            {!loading && !ordered.length && <div className="picker-empty">{t('چیزی با این نام نیست')}</div>}
+            {!loading && !flat.length && <div className="picker-empty">{t('چیزی با این نام نیست')}</div>}
             {loading && <div className="picker-empty">{t('در حال باز کردن…')}</div>}
           </div>
         </section>
@@ -578,7 +701,7 @@ export function PortalPicker() {
               entry={previewEntry}
               maxKB={prefs.previewMaxKB}
               onOpen={(path) => {
-                const entry = ordered.find((e) => e.path === path)
+                const entry = flat.find((e) => e.path === path)
                 if (entry) openEntry(entry)
               }}
               onClose={() => setPreviewOpen(false)}

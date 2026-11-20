@@ -5804,10 +5804,12 @@ html[data-rounded='0'] .app {
   padding: 4px 8px;
   border-radius: 5px;
 }
-.picker-crumbs button + button::before {
-  content: '/';
-  margin-right: 8px;
+.picker-crumbs > svg {
+  flex: none;
   color: var(--dim);
+  /* the mirror rule below owns `transform`, so the nudge uses the independent `translate`;
+     -2px lands the arrow's ink on the x-height centre of the 13px crumb text (measured) */
+  translate: 0 -2px;
 }
 .picker-crumbs button:hover,
 .picker-crumbs button:last-child {
@@ -5952,6 +5954,19 @@ html[data-rounded='0'] .app {
   border-bottom: 1px solid var(--line-soft);
   cursor: default;
 }
+.picker-group-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--dim);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
 .picker-row:hover,
 .picker-row.active {
   background: var(--panel-2);
@@ -6012,7 +6027,7 @@ html[data-rounded='0'] .app {
 .picker-tile-thumb.pic {
   background: var(--panel-3);
 }
-.picker-tile-thumb img {
+.picker-tile-thumb .picker-tile-photo {
   position: absolute;
   inset: 0;
   width: 100%;

@@ -506,6 +506,7 @@ const EN: Record<string, string> = {
   'بازگرداندن فهرست پیش‌فرض': 'Restore the default list',
   'مرتب‌سازی بر اساس': 'Sort by',
   'گروه‌بندی بر اساس': 'Group by',
+  'گروه‌بندی': 'Grouping',
   'بدون گروه‌بندی': 'No grouping',
   'صعودی (الف → ی)': 'Ascending (A → Z)',
   'نزولی (ی → الف)': 'Descending (Z → A)',
