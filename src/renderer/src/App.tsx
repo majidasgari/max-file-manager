@@ -49,6 +49,7 @@ import { TreePane } from './TreePane'
 import { SearchOverlay } from './SearchOverlay'
 import { Sidebar } from './Sidebar'
 import { SheetHead } from './Sheet'
+import { TabStrip } from './TabStrip'
 import { RemoteDialog } from './RemoteDialog'
 import { CloudDialog } from './CloudDialog'
 import { SyncWorkspace } from './SyncWorkspace'
@@ -587,7 +588,7 @@ export default function App() {
   }, [prefs.colorTheme])
 
   useEffect(() => {
-    document.documentElement.dataset.sidebarTone = String(prefs.sidebarTone || 1)
+    document.documentElement.dataset.sidebarTone = String(prefs.sidebarTone)
   }, [prefs.sidebarTone])
 
   useEffect(() => {
@@ -630,7 +631,11 @@ export default function App() {
     const on = chrome.customTitlebar && chrome.rounded
     document.documentElement.dataset.rounded = on ? '1' : '0'
     document.documentElement.style.setProperty('--chrome-h', chrome.customTitlebar ? '36px' : '0px')
-  }, [chrome])
+    // layout switches are plain CSS hooks: the document element carries the choice, style.css reacts
+    document.documentElement.dataset.tabsPlace = prefs.tabsPlace
+    document.documentElement.dataset.tabsVertical = prefs.tabsVertical ? '1' : '0'
+    document.documentElement.dataset.sidebarSide = prefs.sidebarSide
+  }, [chrome, prefs.tabsPlace, prefs.tabsVertical, prefs.sidebarSide])
 
   // boot: restore the last session, fall back to home
   useEffect(() => {
@@ -942,10 +947,18 @@ export default function App() {
     if (!sideEl) return
     const rect = sideEl.getBoundingClientRect()
     const rtl = document.documentElement.dir === 'rtl'
+    // sidebarSide is inline-axis-relative: 'right' is the end of the row, so the outer edge mirrors
+    const atRight = prefs.sidebarSide === 'right'
 
     let curWidth = prefs.sidebarWidth
     const move = (e: PointerEvent) => {
-      const raw = rtl ? rect.right - e.clientX : e.clientX - rect.left
+      const raw = atRight
+        ? rtl
+          ? e.clientX - rect.left
+          : rect.right - e.clientX
+        : rtl
+          ? rect.right - e.clientX
+          : e.clientX - rect.left
       const clamped = Math.min(600, Math.max(160, Math.round(raw)))
       if (clamped !== curWidth) {
         curWidth = clamped
@@ -3898,6 +3911,8 @@ export default function App() {
   // sides do not sit at different heights
   const forceTabStrip =
     prefs.layout === 'dual' && !sideOpen && panes.some((p) => p.tabs.length > 1)
+  // vertical tabs are a single-pane arrangement: in dual layout each pane keeps its own strip
+  const tabsInSidebar = prefs.tabsVertical && prefs.layout === 'single'
   const sideContent = editor && !editorMax ? (
     <Editor
       key="editor-dock"
@@ -4112,6 +4127,25 @@ export default function App() {
           <>
             <Sidebar
               style={{ width: prefs.sidebarWidth }}
+              tabsSlot={
+                tabsInSidebar ? (
+                  <TabStrip
+                    pane={panes[0]}
+                    active
+                    iconSet={iconSetFor()}
+                    showTabIcons={prefs.tabIcons}
+                    tabIcons={tabIcons}
+                    tabColors={prefs.tabColors}
+                    middleClickClosesTab={prefs.middleClickClosesTab}
+                    onTabNew={() => addTab(0, tabOf(panes![0]))}
+                    onTabClose={(idx) => closeTab(0, idx)}
+                    onTabPick={(idx) => setPanes((p) => p && patch(p, 0, { ti: idx, sel: [] }))}
+                    onTabMenu={(idx, x, y) => setMenu({ path: null, tab: idx, x, y })}
+                    onTabMove={(from, to) => moveTab(0, from, to)}
+                  />
+                ) : null
+              }
+              tabsCount={panes[0].tabs.length}
               labels={labelCounts}
               onPickLabel={(id) => setPanes((p) => p && patch(p, active, { filter: '#' + id }))}
               roots={roots}
@@ -4348,6 +4382,7 @@ export default function App() {
             tileSize={prefs.tileSize}
             hideSingleTab={prefs.hideSingleTab}
             forceTabStrip={forceTabStrip}
+            tabsInSidebar={tabsInSidebar}
             iconSet={iconSetFor()}
             sizeFormat={prefs.sizeFormat}
             dateFormat={prefs.dateFormat}

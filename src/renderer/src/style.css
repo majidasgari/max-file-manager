@@ -31,10 +31,24 @@
   --c-slides: #ea9a5c;
   --c-file: #7c8494;
 
-  /* sidebar tone levels (1 = ultra-mild default, 6 = most vivid) */
+  /* sidebar tone levels (0 = no tint, the header surface; 1 = ultra-mild, 6 = most vivid) */
+  --side-base: var(--rail);
   --side-tint: 0.6%;
   --side-hover: 4%;
   --side-border: 5%;
+}
+
+:root[data-sidebar-tone='0'] {
+  /* level 0: the sidebar is the header's own surface, with no accent at all */
+  --side-base: var(--chrome);
+  --side-tint: 0%;
+  --side-hover: 4%;
+  --side-border: 0%;
+}
+:root[data-sidebar-tone='0'] .side {
+  /* skip the color-mix entirely so the computed color is byte-for-byte the header's */
+  background: var(--side-base);
+  border-inline-end-color: var(--line-soft);
 }
 
 :root[data-sidebar-tone='1'] {
@@ -485,7 +499,7 @@ input {
   max-width: 600px;
   flex: none;
   padding: 8px 6px;
-  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--bg));
+  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--side-base, var(--rail)));
   border-inline-end: 1px solid color-mix(in srgb, var(--accent) var(--side-border, 5%), var(--line));
   overflow-y: auto;
   display: flex;
@@ -493,7 +507,7 @@ input {
   gap: 1px;
 }
 .side .tree-row:hover {
-  background: color-mix(in srgb, var(--accent) var(--side-hover, 4%), var(--bg));
+  background: color-mix(in srgb, var(--accent) var(--side-hover, 4%), var(--side-base, var(--rail)));
 }
 .side-split {
   flex: 0 0 5px;
@@ -2365,7 +2379,7 @@ html[data-rounded='0'] .app {
   max-width: calc(100vw - 32px);
   flex: none;
   height: 100%;
-  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--bg));
+  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--side-base, var(--rail)));
   border: 1px solid color-mix(in srgb, var(--accent) var(--side-border, 5%), var(--line));
   border-radius: 10px;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
@@ -6743,19 +6757,34 @@ button.bd-row:hover {
   -webkit-app-region: drag;
   padding-inline-end: 104px;
 }
+/* with the buttons on the left the file name starts under them, so the gap moves to that side */
+.standalone-editor.side-left .ed-head {
+  padding-inline-end: 10px;
+  padding-left: 104px;
+}
+/* the strip is physical, so the gap is too: in RTL the inline end would protect the wrong edge */
+.standalone-editor.side-right .ed-head {
+  padding-inline-end: 10px;
+  padding-right: 104px;
+}
 .standalone-editor .ed-head button,
 .standalone-editor .ed-head .seg {
   -webkit-app-region: no-drag;
 }
+/* titlebarSide is physical everywhere else in the app, so this strip is physical too */
 .standalone-winbtns {
   position: fixed;
   top: 0;
-  inset-inline-end: 0;
+  right: 0;
   height: 36px;
   display: flex;
   align-items: center;
   z-index: 80;
   -webkit-app-region: no-drag;
+}
+.standalone-winbtns.side-left {
+  right: auto;
+  left: 0;
 }
 
 /* editor draft banner */
@@ -8775,8 +8804,8 @@ html[data-rounded='0'] .app { border-radius: 0; }
 /* ── sidebar: the sheet's soft rail ────────────────────────────────────────── */
 .side {
   padding: 8px;
-  /* the sidebar tone levels still apply; only their base moved up with the rail */
-  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--rail));
+  /* the sidebar tone levels still apply; level 0 uses the header surface itself */
+  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--side-base, var(--rail)));
   border-inline-end: 1px solid var(--line-soft);
 }
 .side-title {
@@ -8792,7 +8821,7 @@ html[data-rounded='0'] .app { border-radius: 0; }
   color: var(--dim);
 }
 .tree-row { border-radius: var(--r-sm); min-height: 26px; }
-.side .tree-row:hover { background: color-mix(in srgb, var(--accent) 8%, var(--rail)); }
+.side .tree-row:hover { background: color-mix(in srgb, var(--accent) 8%, var(--side-base, var(--rail))); }
 .tree-row:hover { background: var(--hover); }
 .tree-row.on { background: var(--accent-soft); }
 .side-add {
@@ -9097,4 +9126,90 @@ html[data-tab-shape='classic'] .tab .x {
 .prefs-body::-webkit-scrollbar-thumb:hover,
 .prefs-nav::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in srgb, var(--text) 38%, transparent);
+}
+
+/* ── layout switches (prefs.tabsPlace / tabsVertical / sidebarSide) ─────────── */
+/* tabs under the listing: the pane is already a flex column, so only the order changes */
+html[data-tabs-place='bottom'] .pane .tabs {
+  order: 9;
+  flex: none;
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+  padding: 0 8px 6px;
+}
+html[data-tabs-place='bottom'] .pane .tab {
+  border-radius: 0 0 6px 6px;
+}
+/* the active indicator moves from the top edge to the bottom one, in both panes */
+html[data-tabs-place='bottom'] .pane .tab.on,
+html[data-tabs-place='bottom'] .pane:not(.active) .tab.on {
+  margin-bottom: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 2px solid var(--accent);
+}
+
+/* vertical tabs in the sidebar: a column above Places, one tab per row */
+html[data-tabs-vertical='1'] .side .tabs {
+  flex: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+/* vertical tabs are sidebar rows, not tabs: same surface, same hover, same selection */
+html[data-tabs-vertical='1'] .side .tab {
+  max-width: none;
+  min-height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm, 6px);
+  background: transparent;
+  color: var(--dim);
+  margin: 0;
+  box-shadow: none;
+  font-weight: 400;
+}
+html[data-tabs-vertical='1'] .side .tab:hover {
+  background: color-mix(in srgb, var(--accent) 8%, var(--side-base, var(--rail)));
+  border: 0;
+  color: var(--text);
+}
+html[data-tabs-vertical='1'] .side .tab.on {
+  background: var(--accent-soft);
+  border: 0;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 500;
+  margin: 0;
+}
+html[data-tabs-vertical='1'] .side .tab .tab-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-tabs-vertical='1'] .side .tab .x {
+  margin-inline-start: auto;
+}
+html[data-tabs-vertical='1'] .side .tabs > .tb {
+  width: 100%;
+  height: 26px;
+  justify-content: flex-start;
+  padding-inline-start: 8px;
+  border-radius: var(--r-sm, 6px);
+}
+
+/* sidebar on the end of the row; `sidebarSide` is inline-axis-relative, so RTL mirrors it for free */
+html[data-sidebar-side='right'] .body > .side {
+  order: 2;
+  border-inline-end: 0;
+  border-inline-start: 1px solid color-mix(in srgb, var(--accent) var(--side-border, 5%), var(--line));
+}
+html[data-sidebar-side='right'] .body > .side-split {
+  /* the splitter must sit between the pane and the sidebar, not outside the sidebar */
+  order: 1;
 }

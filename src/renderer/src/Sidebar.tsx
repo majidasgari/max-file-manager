@@ -61,6 +61,10 @@ type Props = {
   onCloud?(binding: CloudBinding): void
   onManageClouds?(): void
   onCloudMenu?(binding: CloudBinding, x: number, y: number): void
+  /** vertical tab strip, rendered above Places when the tabs live in the sidebar */
+  tabsSlot?: React.ReactNode
+  /** number of open tabs, shown as the section badge */
+  tabsCount?: number
 }
 
 export function Sidebar({
@@ -102,7 +106,9 @@ export function Sidebar({
   clouds,
   onCloud,
   onManageClouds,
-  onCloudMenu
+  onCloudMenu,
+  tabsSlot,
+  tabsCount
 }: Props) {
   const [dragMarkIdx, setDragMarkIdx] = useState<number | null>(null)
   /** path of the bookmark whose title is being edited inline */
@@ -352,6 +358,27 @@ export function Sidebar({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {tabsSlot && (
+        <>
+          <div className="side-section-head">
+            <button
+              type="button"
+              className="side-section-toggle"
+              onClick={() => toggleSection('tabs')}
+              aria-expanded={!isCollapsed('tabs')}
+            >
+              <span className="side-twisty">
+                {!isCollapsed('tabs') ? <ChevronDownIcon size={11} /> : <ChevronLeftIcon size={11} />}
+              </span>
+              <span className="side-title">{t('تب‌ها')}</span>
+              {typeof tabsCount === 'number' && tabsCount > 0 && (
+                <span className="side-section-badge">{fa(tabsCount)}</span>
+              )}
+            </button>
+          </div>
+          {!isCollapsed('tabs') && tabsSlot}
+        </>
+      )}
       <div
         className="side-head"
         onPointerDown={onPointerDownHead}

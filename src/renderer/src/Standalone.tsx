@@ -144,7 +144,7 @@ export function StandaloneEditor({ path }: { path: string }) {
   const { note, say } = useNote()
   if (!prefs) return <div className="boot">{t('در حال باز کردن…')}</div>
   return (
-    <div className="standalone-editor">
+    <div className={'standalone-editor side-' + prefs.titlebarSide}>
       <Editor
         path={path}
         theme={prefs.theme === 'system'
@@ -159,7 +159,7 @@ export function StandaloneEditor({ path }: { path: string }) {
       />
       {/* the editor header has no caption buttons; this window needs them to be closable */}
       {prefs.titlebar === 'app' && (
-        <div className="standalone-winbtns">
+        <div className={'standalone-winbtns side-' + prefs.titlebarSide}>
           <WindowButtons
             theme={prefs.titlebarButtons}
             side={prefs.titlebarSide}

@@ -91,6 +91,12 @@ export type Prefs = {
   titlebarButtons: 'default' | 'mcmojave' | 'windows' | 'minimal'
   /** physical side of the caption buttons */
   titlebarSide: 'left' | 'right'
+  /** where a pane's tab strip sits: above the listing (today's behaviour) or under it */
+  tabsPlace: 'top' | 'bottom'
+  /** draw the tabs as a vertical column inside the sidebar; single layout only */
+  tabsVertical: boolean
+  /** side of the docked sidebar relative to the inline axis of the row */
+  sidebarSide: 'left' | 'right'
   rounded: boolean
   /** tab shape: joined-to-the-strip tabs (classic) or separate rounded pills */
   tabShape: 'classic' | 'pill'
@@ -98,8 +104,8 @@ export type Prefs = {
   sidebar: 'docked' | 'float'
   sidebarOpen: boolean
   sidebarWidth: number
-  /** 1 = ultra mild (default), 2 = soft, 3 = gentle, 4 = medium, 5 = pronounced, 6 = vivid */
-  sidebarTone: 1 | 2 | 3 | 4 | 5 | 6
+  /** 0 = no tint at all (same surface as the header); 6 = most vivid */
+  sidebarTone: 0 | 1 | 2 | 3 | 4 | 5 | 6
   /** ids of sidebar sections currently collapsed ('places' | 'bookmarks' | 'labels' | 'drives') */
   sidebarCollapsed: string[]
   /** show the removable-devices section in the sidebar */
@@ -319,13 +325,16 @@ export const DEFAULTS: Prefs = {
   titlebar: 'app',
   titlebarButtons: 'default',
   titlebarSide: 'right',
+  tabsPlace: 'top',
+  tabsVertical: false,
+  sidebarSide: 'left',
   rounded: true,
   tabShape: 'classic',
   layout: 'dual',
   sidebar: 'docked',
   sidebarOpen: true,
   sidebarWidth: 208,
-  sidebarTone: 1,
+  sidebarTone: 0,
   sidebarCollapsed: [],
   sidebarDrives: true,
   sidebarTreeOpen: [],
@@ -626,6 +635,9 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
         ? p.titlebarButtons
         : 'default',
     titlebarSide: p.titlebarSide === 'left' ? 'left' : 'right',
+    tabsPlace: p.tabsPlace === 'bottom' ? 'bottom' : 'top',
+    tabsVertical: p.tabsVertical === true,
+    sidebarSide: p.sidebarSide === 'right' ? 'right' : 'left',
     rounded: p.rounded !== false,
     tabShape: p.tabShape === 'pill' ? 'pill' : 'classic',
     layout: p.layout === 'single' ? 'single' : 'dual',
@@ -636,9 +648,9 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
         ? Math.min(600, Math.max(160, Math.round(p.sidebarWidth)))
         : 208,
     sidebarTone:
-      typeof p.sidebarTone === 'number' && [1, 2, 3, 4, 5, 6].includes(p.sidebarTone)
-        ? (p.sidebarTone as 1 | 2 | 3 | 4 | 5 | 6)
-        : 1,
+      typeof p.sidebarTone === 'number' && [0, 1, 2, 3, 4, 5, 6].includes(p.sidebarTone)
+        ? (p.sidebarTone as 0 | 1 | 2 | 3 | 4 | 5 | 6)
+        : 0,
     sidebarCollapsed:
       Array.isArray(p.sidebarCollapsed)
         ? p.sidebarCollapsed.filter((x): x is string => typeof x === 'string')

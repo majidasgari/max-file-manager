@@ -23,7 +23,8 @@ import {
   type SortKey
 } from './format'
 import { PreviewPanel } from './PreviewPanel'
-import { CloudMark, EntryIcon, EyeIcon, EyeOffIcon, FilterIcon, LinkIcon, LockIcon, SortIcon } from './Icons'
+import { TabStrip } from './TabStrip'
+import { CloudMark, EntryIcon, EyeIcon, EyeOffIcon, FilterIcon, LinkIcon, SortIcon } from './Icons'
 import {
   ArrowUpIcon,
   ChevronDownIcon,
@@ -114,6 +115,8 @@ type Props = {
   hideSingleTab: boolean
   /** dual layout with a multi-tab sibling: keep both strips so the panes stay symmetric */
   forceTabStrip?: boolean
+  /** the tabs are drawn as a vertical column in the sidebar, not inside this pane */
+  tabsInSidebar?: boolean
   /** kind → icon file of the preferred desktop theme; empty means our line glyphs */
   iconSet?: Record<string, string>
   sizeFormat: 'human' | 'bytes'
@@ -668,91 +671,21 @@ export function Pane(props: Props) {
       style={props.style}
       onMouseDown={props.onActivate}
     >
-      {showTabs && (
-      <div className="tabs">
-        {pane.tabs.map((tabPath, i) => {
-          const tabId = pane.tabIds?.[i] ?? ('t_' + i)
-          const pinned = i < pane.pinCount
-          const locked = pane.tabLocks[tabId] === true
-          const title = pane.tabNames[tabPath] || tabPath.split(/[\\/]/).filter(Boolean).pop() || tabPath
-          const tabColor = props.tabColors[tabPath]
-          return (
-            <div
-              key={tabId}
-              className={'tab' + (i === pane.ti ? ' on' : '') + (pinned ? ' pinned' : '')}
-              style={
-                tabColor && i === pane.ti
-                  ? { background: `color-mix(in srgb, ${tabColor} 18%, var(--panel))` }
-                  : undefined
-              }
-              draggable
-              onDragStart={(ev) => {
-                ev.dataTransfer.setData('application/x-mfm-tab', String(i))
-                ev.dataTransfer.effectAllowed = 'move'
-              }}
-              onDragOver={(ev) => {
-                if (ev.dataTransfer.types.includes('application/x-mfm-tab')) ev.preventDefault()
-              }}
-              onDrop={(ev) => {
-                const raw = ev.dataTransfer.getData('application/x-mfm-tab')
-                if (!raw) return
-                ev.preventDefault()
-                ev.stopPropagation()
-                props.onTabMove(Number(raw), i)
-              }}
-              onClick={() => props.onTabPick(i)}
-              onAuxClick={(ev) => {
-                if (ev.button === 1 && props.middleClickClosesTab && !locked) {
-                  ev.preventDefault()
-                  props.onTabClose(i)
-                }
-              }}
-              onContextMenu={(ev) => {
-                ev.preventDefault()
-                ev.stopPropagation()
-                props.onTabMenu(i, ev.clientX, ev.clientY)
-              }}
-              title={tabPath}
-            >
-              {pinned && <PinIcon filled />}
-              {locked && <LockIcon size={11} />}
-              {props.showTabIcons && (
-                <EntryIcon
-                  size={14}
-                  iconSet={props.iconSet}
-                  entry={{
-                    name: tabPath.split(/[\\/]/).filter(Boolean).pop() || tabPath,
-                    path: tabPath,
-                    dir: true,
-                    size: 0,
-                    mtime: 0,
-                    ext: '',
-                    color: props.tabIcons[tabPath]?.color,
-                    icon: props.tabIcons[tabPath]?.icon
-                  }}
-                />
-              )}
-              {tabColor && <span className="tab-dot" style={{ background: tabColor }} />}
-              <span dir="auto">{title}</span>
-              {!pinned && !locked && pane.tabs.length > 1 && (
-                <button
-                  className="x"
-                  title={t(t('بستن تب'))}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    props.onTabClose(i)
-                  }}
-                >
-                  <XIcon size={11} />
-                </button>
-              )}
-            </div>
-          )
-        })}
-        <button className="tb" title={t(t('تب نو (Ctrl+T)'))} onClick={props.onTabNew}>
-          <PlusIcon size={13} />
-        </button>
-      </div>
+      {showTabs && !props.tabsInSidebar && (
+        <TabStrip
+          pane={pane}
+          active={active}
+          iconSet={props.iconSet}
+          showTabIcons={props.showTabIcons}
+          tabIcons={props.tabIcons}
+          tabColors={props.tabColors}
+          middleClickClosesTab={props.middleClickClosesTab}
+          onTabNew={props.onTabNew}
+          onTabClose={props.onTabClose}
+          onTabPick={props.onTabPick}
+          onTabMenu={props.onTabMenu}
+          onTabMove={props.onTabMove}
+        />
       )}
 
       <div

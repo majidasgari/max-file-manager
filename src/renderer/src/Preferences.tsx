@@ -499,6 +499,35 @@ export function Preferences({
                   prefs.titlebar === 'system'
                 )
               )}
+              {row(
+                t('جای تب‌ها'),
+                null,
+                seg(
+                  prefs.tabsPlace,
+                  [
+                    { v: 'top', label: t('بالا') },
+                    { v: 'bottom', label: t('پایین') }
+                  ],
+                  'tabsPlace'
+                )
+              )}
+              {row(
+                t('تب‌های عمودی در سایدبار'),
+                t('فقط در نمای تک‌پنلی، بالای مکان‌ها'),
+                check(prefs.tabsVertical, 'tabsVertical')
+              )}
+              {row(
+                t('سمت سایدبار'),
+                null,
+                seg(
+                  prefs.sidebarSide,
+                  [
+                    { v: 'left', label: t('چپ') },
+                    { v: 'right', label: t('راست') }
+                  ],
+                  'sidebarSide'
+                )
+              )}
             </>
           )}
 
@@ -919,10 +948,11 @@ export function Preferences({
               )}
               {row(
                 t('سطح رنگ تم سایدبار'),
-                t('تنظیم میزان غلظت رنگ تم روی سایدبار در ۶ سطح (۱ = کمترین رنگ، ۶ = پررنگ‌ترین)'),
+                t('تنظیم میزان غلظت رنگ تم روی سایدبار در ۷ سطح (۰ = بدون رنگ، هم‌رنگ هدر؛ ۶ = پررنگ‌ترین)'),
                 seg(
                   prefs.sidebarTone,
                   [
+                    { v: 0, label: fa(0) },
                     { v: 1, label: fa(1) },
                     { v: 2, label: fa(2) },
                     { v: 3, label: fa(3) },
