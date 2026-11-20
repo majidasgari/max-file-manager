@@ -6,7 +6,7 @@ import {
   type PlayerCapabilities,
   type Preview
 } from './api'
-import { fa, fmtDate, fmtSize, mediaUrl, thumbUrl } from './format'
+import { dirOf, fa, fmtDate, fmtSize, mediaUrl, thumbUrl } from './format'
 import { ChevronLeftIcon, ChevronRightIcon, FileIcon, GridIcon, VideoIcon, XIcon } from './Icons'
 import { renderMarkdown } from './md'
 import { cleanHtml, isHtmlPath } from './html'
@@ -293,7 +293,7 @@ export function PreviewPanel({
               <div
                 className="preview-body md-body"
                 dir="auto"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(data.text ?? '') }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(data.text ?? '', dirOf(entry.path)) }}
               />
             )}
             {data?.kind === 'text' && !/\.(md|markdown|mdx)$/i.test(entry.path) && !isHtmlPath(entry.path) && (

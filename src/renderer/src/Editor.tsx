@@ -1,7 +1,7 @@
 import { t } from './i18n.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
-import { baseName, fmtDate } from './format'
+import { baseName, dirOf, fmtDate } from './format'
 import { highlightCode, langFor } from './highlight'
 import { renderMarkdown } from './md'
 import { dirOfText } from './direction'
@@ -182,7 +182,7 @@ export function Editor({
     setBusy(true)
     onNote(t('در حال ساخت PDF…'))
     const body = isMd
-      ? renderMarkdown(text)
+      ? renderMarkdown(text, dirOf(path))
       : `<pre dir="ltr" style="white-space:pre-wrap;unicode-bidi:plaintext;text-align:start">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>`
     const out = path.replace(/\.[^./\\]+$/, '') + '.pdf'
     // paper is light: a dark PDF is unreadable when printed or previewed
@@ -225,7 +225,10 @@ export function Editor({
     () => highlightCode(value, lang) + '\n',
     [value, lang]
   )
-  const rendered = useMemo(() => (isMd ? renderMarkdown(value) : ''), [isMd, value])
+  const rendered = useMemo(
+    () => (isMd ? renderMarkdown(value, dirOf(path)) : ''),
+    [isMd, value, path]
+  )
   const dir = isMd ? dirOfText(value) : 'ltr'
 
   return (
