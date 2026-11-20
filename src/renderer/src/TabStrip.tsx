@@ -17,6 +17,8 @@ type Props = {
   onTabPick(idx: number): void
   onTabMenu(idx: number, x: number, y: number): void
   onTabMove(from: number, to: number): void
+  /** the sidebar renders its own "+" in the section head */
+  showNew?: boolean
 }
 
 /** The pane's tab strip: one file it lives in the pane, vertical it lives in the sidebar. */
@@ -68,13 +70,14 @@ export function TabStrip(props: Props) {
             }}
             title={tabPath}
           >
-            {pinned && <PinIcon filled />}
-            {locked && <LockIcon size={11} />}
-            {props.showTabIcons && (
-              <EntryIcon
-                size={14}
-                iconSet={props.iconSet}
-                entry={{
+            {/* the same 16px slot the tree rows use, so tabs line up with Places and Bookmarks */}
+            <span className="twisty" />
+            <span className="tab-ico">
+              {props.showTabIcons && (
+                <EntryIcon
+                  size={14}
+                  iconSet={props.iconSet}
+                  entry={{
                   name: tabPath.split(/[\\/]/).filter(Boolean).pop() || tabPath,
                   path: tabPath,
                   dir: true,
@@ -82,12 +85,15 @@ export function TabStrip(props: Props) {
                   mtime: 0,
                   ext: '',
                   color: props.tabIcons[tabPath]?.color,
-                  icon: props.tabIcons[tabPath]?.icon
-                }}
-              />
-            )}
+                    icon: props.tabIcons[tabPath]?.icon
+                  }}
+                />
+              )}
+            </span>
             {tabColor && <span className="tab-dot" style={{ background: tabColor }} />}
             <span className="tab-name" dir="auto">{title}</span>
+            {pinned && <PinIcon filled />}
+            {locked && <LockIcon size={11} />}
             {!pinned && !locked && pane.tabs.length > 1 && (
               <button
                 className="x"
@@ -103,9 +109,11 @@ export function TabStrip(props: Props) {
           </div>
         )
       })}
-      <button className="tb" title={t(t('تب نو (Ctrl+T)'))} onClick={props.onTabNew}>
-        <PlusIcon size={13} />
-      </button>
+      {props.showNew !== false && (
+        <button className="tb" title={t(t('تب نو (Ctrl+T)'))} onClick={props.onTabNew}>
+          <PlusIcon size={13} />
+        </button>
+      )}
     </div>
   )
 }

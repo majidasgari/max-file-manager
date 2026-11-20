@@ -4314,6 +4314,7 @@ export default function App() {
                     tabIcons={tabIcons}
                     tabColors={prefs.tabColors}
                     middleClickClosesTab={prefs.middleClickClosesTab}
+                    showNew={false}
                     onTabNew={() => addTab(active, tabOf(panes![active]))}
                     onTabClose={(idx) => closeTab(active, idx)}
                     onTabPick={(idx) => setPanes((p) => p && patch(p, active, { ti: idx, sel: [] }))}
@@ -4323,6 +4324,7 @@ export default function App() {
                 ) : null
               }
               tabsCount={panes[active].tabs.length}
+              onTabNew={() => addTab(active, tabOf(panes![active]))}
               labels={labelCounts}
               onPickLabel={(id) => setPanes((p) => p && patch(p, active, { filter: '#' + id }))}
               roots={roots}

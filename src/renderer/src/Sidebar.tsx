@@ -65,6 +65,8 @@ type Props = {
   tabsSlot?: React.ReactNode
   /** number of open tabs, shown as the section badge */
   tabsCount?: number
+  /** "+" next to the tab count (the strip no longer draws its own in the sidebar) */
+  onTabNew?(): void
 }
 
 export function Sidebar({
@@ -108,7 +110,8 @@ export function Sidebar({
   onManageClouds,
   onCloudMenu,
   tabsSlot,
-  tabsCount
+  tabsCount,
+  onTabNew
 }: Props) {
   const [dragMarkIdx, setDragMarkIdx] = useState<number | null>(null)
   /** path of the bookmark whose title is being edited inline */
@@ -375,6 +378,16 @@ export function Sidebar({
                 <span className="side-section-badge">{fa(tabsCount)}</span>
               )}
             </button>
+            {onTabNew && (
+              <button
+                type="button"
+                className="side-section-add"
+                title={t('تب نو (Ctrl+T)')}
+                onClick={onTabNew}
+              >
+                <PlusIcon size={12} />
+              </button>
+            )}
           </div>
           {!isCollapsed('tabs') && tabsSlot}
         </>

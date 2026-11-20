@@ -612,6 +612,25 @@ input {
   margin: 0;
   color: inherit;
 }
+/* "+" beside the tab count (the vertical strip keeps no row of its own) */
+.side-section-add {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.side-section-add:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .side-twisty {
   display: inline-grid;
   place-items: center;
@@ -9180,7 +9199,9 @@ html[data-tabs-vertical='1'] .side .tabs {
 html[data-tabs-vertical='1'] .side .tab {
   max-width: none;
   min-height: 26px;
-  padding: 0 6px;
+  /* the sidebar's rows all start at the same x: twisty slot + icon slot + label */
+  padding-block: 0;
+  padding-inline: 0 6px;
   border: 0;
   border-radius: var(--r-sm, 6px);
   background: transparent;
@@ -9211,6 +9232,21 @@ html[data-tabs-vertical='1'] .side .tab .tab-name {
 }
 html[data-tabs-vertical='1'] .side .tab .x {
   margin-inline-start: auto;
+}
+/* the spacer and the icon slot are a sidebar-only indent; horizontal tabs stay flush */
+.tabs .tab > .twisty,
+.tabs .tab > .tab-ico {
+  display: none;
+}
+html[data-tabs-vertical='1'] .side .tab > .twisty {
+  display: block;
+  width: 14px;
+}
+html[data-tabs-vertical='1'] .side .tab > .tab-ico {
+  display: flex;
+  flex: none;
+  width: 15px;
+  align-items: center;
 }
 html[data-tabs-vertical='1'] .side .tabs > .tb {
   width: 100%;
