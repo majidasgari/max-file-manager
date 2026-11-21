@@ -1,7 +1,8 @@
 import { t } from './i18n.ts'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Entry, type Listing } from './api'
-import { dragOutPaths, holdDragOut, keepDragPaths, releaseDragOut } from './drag'
+import { dragOutPaths, holdDragOut, keepDragPaths, pathsOf, releaseDragOut } from './drag'
+import { dropDestFor } from './drop.ts'
 import { dragLog } from './draglog'
 import type { ColId } from './prefs'
 import {
@@ -92,6 +93,8 @@ export type PaneState = {
 export type SearchQuery = { query: string; content: string; regex: boolean }
 
 type Props = {
+  /** files remembered by Ctrl+X; they are dimmed until the paste lands */
+  cutPaths?: string[]
   index: number
   pane: PaneState
   active: boolean
@@ -211,6 +214,7 @@ const isImageName = (n: string) => /\.(png|jpe?g|gif|webp|bmp|avif|svg|ico)$/i.t
 
 export function Pane(props: Props) {
   const { pane, sort, active, view } = props
+  const cutSet = new Set(props.cutPaths ?? [])
   const [scrollTop, setScrollTop] = useState(0)
   const [box, setBox] = useState({ w: 600, h: 600 })
   const [searchOpen, setSearchOpen] = useState(false)
@@ -583,6 +587,22 @@ export function Pane(props: Props) {
   // rows carry their own paths (not text) so a drag between panes stays typed
   const dragPaths = (path: string) => (pane.sel.includes(path) ? pane.sel : [path])
 
+  /**
+   * The folder under the pointer while a drag is in flight — the only answer the UI gives to «may
+   * I drop this here?». A native drag (Windows/macOS) can finish without `dragleave`, so `drop` and
+   * `dragend` clear it too.
+   */
+  const [dropOver, setDropOver] = useState<string | null>(null)
+  useEffect(() => {
+    const clear = () => setDropOver(null)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('drop', clear)
+    }
+  }, [])
+
   const startDrag = (ev: React.DragEvent, path: string, _dir = false) => {
     const paths = dragPaths(path)
     if (!paths.length) return
@@ -610,18 +630,33 @@ export function Pane(props: Props) {
     ev.dataTransfer.effectAllowed = 'all'
   }
 
-  const allowDrop = (ev: React.DragEvent) => {
+  const allowDrop = (ev: React.DragEvent, dest?: string) => {
     const dtTypes = ev.dataTransfer.types
     if (dtTypes.includes('application/x-mfm') || dtTypes.includes('Files')) {
       ev.preventDefault()
-      ev.dataTransfer.dropEffect = ev.ctrlKey ? 'copy' : 'move'
+      // The native drag of our own rows advertises only copy/move to the OS, and the platform
+      // refuses a drop whose effect was not advertised (the sidebar hit the same wall with `link`):
+      // ask for `copy` on the wire and let the queue pick move vs copy from Ctrl.
+      ev.dataTransfer.dropEffect = 'copy'
+      dragLog(`over ${dest ?? 'pane'} types=${[...dtTypes].join('|')}`)
+      if (dest && dest !== dropOver) setDropOver(dest)
     }
+  }
+
+  /** Leaves a row only when the pointer really left it (child-to-child moves keep `relatedTarget`). */
+  const leaveDrop = (ev: React.DragEvent, dest: string) => {
+    if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) return
+    if (dropOver === dest) setDropOver(null)
   }
 
   const dropOn = (ev: React.DragEvent, dest: string) => {
     ev.preventDefault()
     ev.stopPropagation()
+    setDropOver(null)
     const raw = ev.dataTransfer.getData('application/x-mfm')
+    dragLog(
+      `drop on ${dest} types=${[...ev.dataTransfer.types].join('|')} custom=${raw.length} files=${ev.dataTransfer.files.length} uri=${ev.dataTransfer.getData('text/uri-list').length} mine=${dragOutPaths().length}`
+    )
     if (raw) {
       try {
         props.onDropInternal(JSON.parse(raw) as string[], dest, ev.ctrlKey)
@@ -641,6 +676,14 @@ export function Pane(props: Props) {
     if (mine.length && ev.dataTransfer.types.includes('Files')) {
       releaseDragOut()
       props.onDropInternal(mine, dest, ev.ctrlKey)
+      return
+    }
+    // A file manager that only puts `text/uri-list` on the drag (KDE/Dolphin, and the OLE drag of
+    // our own rows when Chromium gives no File objects): still a file drop, with absolute paths.
+    if (ev.dataTransfer.types.includes('text/uri-list')) {
+      const listed = pathsOf(ev.dataTransfer)
+      releaseDragOut()
+      if (listed.length) props.onDropInternal(listed, dest, ev.ctrlKey)
     }
   }
 
@@ -1009,6 +1052,8 @@ export function Pane(props: Props) {
                             'row' +
                             (pane.sel.includes(e.path) ? ' on' : '') +
                             (pinSet.has(e.name) ? ' pinned' : '') +
+                            (e.dir && dropOver === e.path ? ' drop' : '') +
+                            (cutSet.has(e.path) ? ' cut' : '') +
                             (e.hidden ? ' meta-hidden' : '')
                           }
                           style={{
@@ -1018,8 +1063,11 @@ export function Pane(props: Props) {
                           title={e.path}
                           draggable
                           onDragStart={(ev) => startDrag(ev, e.path, e.dir)}
-                          onDragOver={allowDrop}
-                          onDrop={(ev) => dropOn(ev, e.dir ? e.path : cur)}
+                          onDragOver={(ev) => allowDrop(ev, e.dir ? e.path : undefined)}
+                          onDragLeave={(ev) => {
+                            if (e.dir) leaveDrop(ev, e.path)
+                          }}
+                          onDrop={(ev) => dropOn(ev, dropDestFor(e, cur))}
                           onContextMenu={(ev) => menu(ev, e.path)}
                           onClick={(ev) => click(idx, ev)}
                           onDoubleClick={() => props.onOpen(e.path)}
@@ -1105,6 +1153,8 @@ export function Pane(props: Props) {
                             'compact-row' +
                             (pane.sel.includes(e.path) ? ' on' : '') +
                             (pinSet.has(e.name) ? ' pinned' : '') +
+                            (e.dir && dropOver === e.path ? ' drop' : '') +
+                            (cutSet.has(e.path) ? ' cut' : '') +
                             (e.hidden ? ' meta-hidden' : '')
                           }
                           style={{
@@ -1116,8 +1166,11 @@ export function Pane(props: Props) {
                           title={e.path}
                           draggable
                           onDragStart={(ev) => startDrag(ev, e.path, e.dir)}
-                          onDragOver={allowDrop}
-                          onDrop={(ev) => dropOn(ev, e.dir ? e.path : cur)}
+                          onDragOver={(ev) => allowDrop(ev, e.dir ? e.path : undefined)}
+                          onDragLeave={(ev) => {
+                            if (e.dir) leaveDrop(ev, e.path)
+                          }}
+                          onDrop={(ev) => dropOn(ev, dropDestFor(e, cur))}
                           onContextMenu={(ev) => menu(ev, e.path)}
                           onClick={(ev) => click(idx, ev)}
                           onDoubleClick={() => props.onOpen(e.path)}
@@ -1198,7 +1251,11 @@ export function Pane(props: Props) {
                           key={e.path}
                           data-path={e.path}
                           className={
-                            'tile' + (pane.sel.includes(e.path) ? ' on' : '') + (e.hidden ? ' meta-hidden' : '')
+                            'tile' +
+                            (pane.sel.includes(e.path) ? ' on' : '') +
+                            (e.dir && dropOver === e.path ? ' drop' : '') +
+                            (cutSet.has(e.path) ? ' cut' : '') +
+                            (e.hidden ? ' meta-hidden' : '')
                           }
                           style={{
                             top: b.top + b.headerH + r * TILE_H,
@@ -1208,8 +1265,11 @@ export function Pane(props: Props) {
                           }}
                           draggable
                           onDragStart={(ev) => startDrag(ev, e.path, e.dir)}
-                          onDragOver={allowDrop}
-                          onDrop={(ev) => dropOn(ev, e.dir ? e.path : cur)}
+                          onDragOver={(ev) => allowDrop(ev, e.dir ? e.path : undefined)}
+                          onDragLeave={(ev) => {
+                            if (e.dir) leaveDrop(ev, e.path)
+                          }}
+                          onDrop={(ev) => dropOn(ev, dropDestFor(e, cur))}
                           onContextMenu={(ev) => menu(ev, e.path)}
                           onClick={(ev) => click(idx, ev)}
                           onDoubleClick={() => props.onOpen(e.path)}

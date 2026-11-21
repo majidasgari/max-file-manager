@@ -1,6 +1,7 @@
 import { t } from './i18n.ts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type DirRef } from './api'
+import { dragOutPaths, lastDragPaths, pathsOf, releaseDragOut } from './drag'
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -26,6 +27,8 @@ type Props = {
   onNav(dir: string): void
   onAutoFocus(on: boolean): void
   onClose(): void
+  /** a file drag dropped on a node: the tree is the smallest drop target in the window */
+  onDropPaths(paths: string[], dest: string, copy: boolean): void
 }
 
 const ROW = 26
@@ -64,9 +67,12 @@ export function TreePane({
   showSymlink,
   onNav,
   onAutoFocus,
-  onClose
+  onClose,
+  onDropPaths
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({ '/': true })
+  /** the node a file drag is hovering: the tree must say «drop here» before the mouse is released */
+  const [dropOver, setDropOver] = useState<string | null>(null)
   const [kids, setKids] = useState<Record<string, DirRef[]>>({})
   const [scrollTop, setScrollTop] = useState(0)
   const [viewport, setViewport] = useState(480)
@@ -122,6 +128,56 @@ export function TreePane({
     setOpen((o) => ({ ...o, [dir]: next }))
     if (next && !kids[dir]) void load(dir)
   }
+
+  /**
+   * A file drag over the tree. Every node is a folder, so each row is a destination for a move
+   * (Ctrl copies); a bookmark drag carries its own type and must never be read as files.
+   */
+  const dragHasFiles = (dt: DataTransfer): boolean => {
+    const marks = dt.types.includes('application/x-mfm-mark') || dt.types.includes('application/x-mfm-bookmark')
+    if (marks && !dt.types.includes('Files')) return false
+    return (
+      dt.types.includes('application/x-mfm') ||
+      dt.types.includes('Files') ||
+      dt.types.includes('text/uri-list') ||
+      dt.types.includes('text/plain') ||
+      dragOutPaths().length > 0 ||
+      lastDragPaths().length > 0
+    )
+  }
+
+  const allowDrop = (ev: React.DragEvent, dest: string): void => {
+    if (!dragHasFiles(ev.dataTransfer)) return
+    ev.preventDefault()
+    ev.stopPropagation()
+    ev.dataTransfer.dropEffect = ev.ctrlKey ? 'copy' : 'move'
+    if (dropOver !== dest) setDropOver(dest)
+  }
+
+  const leaveDrop = (ev: React.DragEvent, dest: string): void => {
+    if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) return
+    if (dropOver === dest) setDropOver(null)
+  }
+
+  const dropOn = (ev: React.DragEvent, dest: string): void => {
+    ev.preventDefault()
+    ev.stopPropagation()
+    setDropOver(null)
+    const paths = pathsOf(ev.dataTransfer)
+    releaseDragOut()
+    if (paths.length) onDropPaths(paths, dest, ev.ctrlKey)
+  }
+
+  // a native drag can finish without `dragleave`, which would leave a row lit forever
+  useEffect(() => {
+    const clear = (): void => setDropOver(null)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('drop', clear)
+    }
+  }, [])
 
   /** Expand every ancestor of `target`, load the levels, then remember where to scroll. */
   const reveal = useCallback(
@@ -215,9 +271,15 @@ export function TreePane({
               <div
                 key={row.path}
                 className={
-                  'tree-pane-row' + (row.path === path ? ' on' : '') + (row.path === '/' ? ' root' : '')
+                  'tree-pane-row' +
+                  (row.path === path ? ' on' : '') +
+                  (row.path === '/' ? ' root' : '') +
+                  (dropOver === row.path ? ' drop' : '')
                 }
                 style={{ top: index * ROW, paddingInlineStart: 4 + row.depth * 13 }}
+                onDragOver={(ev) => allowDrop(ev, row.path)}
+                onDragLeave={(ev) => leaveDrop(ev, row.path)}
+                onDrop={(ev) => dropOn(ev, row.path)}
               >
                 <button
                   className={'tree-pane-twisty' + (row.hasKids ? '' : ' empty')}

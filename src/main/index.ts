@@ -115,7 +115,7 @@ import {
   type McpMode
 } from './mcp.ts'
 import { randomBytes } from 'node:crypto'
-import { copyFilesToClipboard, releaseFileClipboard } from './fileclip.ts'
+import { copyFilesToClipboard, readClipboardFiles, releaseFileClipboard } from './fileclip.ts'
 import { diffFiles } from './sync.ts'
 import {
   cleanEncryption,
@@ -1495,9 +1495,19 @@ app.whenReady().then(async () => {
     }
   })
   /** Everything the properties dialog shows, in one stat round-trip. */
-  /** Drag debugging: MFM_DRAG_DEBUG=1 keeps one session's drag lifecycle in userData. */
+  /**
+   * Drag/shortcut debugging: `MFM_DRAG_DEBUG=1` for a console session, or an empty
+   * `drag-debug.on` marker in userData — the marker survives a Start-menu launch, where no
+   * environment can be injected.
+   */
   ipcMain.handle('debug:log', (_e, msg: string) => {
-    if (process.env.MFM_DRAG_DEBUG !== '1') return false
+    if (process.env.MFM_DRAG_DEBUG !== '1') {
+      try {
+        if (!existsSync(path.join(app.getPath('userData'), 'drag-debug.on'))) return false
+      } catch {
+        return false
+      }
+    }
     const file = path.join(app.getPath('userData'), 'drag-debug.log')
     try {
       if (!debugLogStarted) {
@@ -2772,6 +2782,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('clipboard:releaseFiles', () => {
     releaseFileClipboard()
     return true
+  })
+  /**
+   * Files another application put on the clipboard, so Ctrl+V works after a copy in Explorer,
+   * Finder or Dolphin. The per-platform flavours are read in `fileclip.ts`.
+   */
+  ipcMain.handle('clipboard:readFiles', async () => {
+    const clip = await readClipboardFiles()
+    // the queue can only act on absolute local paths and URIs the app understands
+    return { paths: clip.paths.filter((p) => isRemotePath(p) || path.isAbsolute(p)), cut: clip.cut }
   })
   ipcMain.handle('clipboard:writeText', (_e, text: string) => {
     clipboard.writeText(String(text ?? ''))

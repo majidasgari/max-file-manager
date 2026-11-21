@@ -13,6 +13,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { EOL, tmpdir } from 'node:os'
 import path from 'node:path'
 import { app, clipboard } from 'electron'
+import { mergeClipTexts, type ClipFiles } from '../shared/clip.ts'
 
 /**
  * Windows gets a real file list (`CF_HDROP` + `Preferred DropEffect`), which Electron's clipboard
@@ -287,8 +288,89 @@ function copyFilesWindows(paths: string[], cut: boolean): Promise<boolean> {
         // already gone
       }
       finish(false)
-    }, 8000)
+    }, 5000)
   })
+}
+
+/** Explorer's CF_HDROP read back: the intent line first (`cut`/`copy`), then one path per line. */
+const WINDOWS_READ = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+$list = [System.Windows.Forms.Clipboard]::GetFileDropList()
+if (-not $list -or $list.Count -eq 0) { exit 0 }
+$eff = [System.Windows.Forms.Clipboard]::GetData('Preferred DropEffect')
+if ($eff -and $eff.Length -ge 1 -and $eff[0] -eq 2) { Write-Output 'cut' } else { Write-Output 'copy' }
+foreach ($p in $list) { Write-Output $p }
+`
+
+function readFilesWindows(): Promise<string> {
+  return new Promise<string>((resolve) => {
+    let proc: ChildProcess
+    try {
+      proc = spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-WindowStyle',
+          'Hidden',
+          '-Command',
+          WINDOWS_READ
+        ],
+        { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
+      )
+    } catch {
+      resolve('')
+      return
+    }
+    let text = ''
+    let settled = false
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      resolve(text.trim())
+    }
+    proc.stdout?.on('data', (buf: Buffer) => {
+      text += String(buf)
+    })
+    proc.once('error', finish)
+    proc.once('exit', finish)
+    setTimeout(() => {
+      try {
+        proc.kill()
+      } catch {
+        // already gone
+      }
+      finish()
+    }, 6000)
+  })
+}
+
+/**
+ * Files another application put on the clipboard, so pasting after a copy in Explorer, Finder or
+ * Dolphin behaves like the in-app clipboard. `cut` is honoured only where the platform records it
+ * (GNOME's header line, Windows' `Preferred DropEffect`); everywhere else it is a plain copy.
+ */
+export async function readClipboardFiles(): Promise<ClipFiles> {
+  if (process.platform === 'win32') return mergeClipTexts([await readFilesWindows()])
+  const texts: string[] = []
+  try {
+    for (const item of await clipboard.read()) {
+      for (const type of item.types ?? []) {
+        if (!/uri-list|file-url|copied-files|kde-cutselection/i.test(type)) continue
+        const one = await item.getType(type)
+        if (typeof one === 'string') texts.push(one)
+        else if (one instanceof Blob) texts.push(await one.text())
+      }
+    }
+    // some desktops expose a file list only as newline separated paths
+    if (!texts.length) texts.push(await clipboard.readText())
+  } catch {
+    // an unreadable clipboard is an empty one
+  }
+  return mergeClipTexts(texts)
 }
 
 /** Resolves to `files` only after the helper confirms that the selection is set. */
@@ -296,7 +378,12 @@ export async function copyFilesToClipboard(paths: string[], cut = false): Promis
   const list = paths.filter((p) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p))
   if (!list.length) return 'text'
   if (process.platform === 'win32') {
-    if (await copyFilesWindows(list, cut)) return 'files'
+    // Explorer (or a hung shell drag) can hold the clipboard open for a moment and make every
+    // write fail with "access denied", so one dead attempt is not a dead copy
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (await copyFilesWindows(list, cut)) return 'files'
+      await new Promise((r) => setTimeout(r, 250))
+    }
     clipboard.writeText(list.join('\n'))
     return 'text'
   }

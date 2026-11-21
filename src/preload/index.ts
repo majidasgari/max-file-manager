@@ -247,6 +247,7 @@ contextBridge.exposeInMainWorld('api', {
   clipboard: {
     releaseFiles: () => ipcRenderer.invoke('clipboard:releaseFiles'),
     copyFiles: (paths: string[], cut = false) => ipcRenderer.invoke('clipboard:copyFiles', { paths, cut }),
+    readFiles: () => ipcRenderer.invoke('clipboard:readFiles'),
     writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
     saveImage: (dir: string, name: string, data: Uint8Array) =>
       ipcRenderer.invoke('clipboard:saveImage', { dir, name, data })

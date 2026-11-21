@@ -6519,6 +6519,23 @@ button.bd-row:hover {
   color: var(--accent);
   font-weight: 600;
 }
+/* the folder that will receive the drop: the same ring in every view, so a move is never a guess */
+.row.drop,
+.compact-row.drop,
+.tile.drop,
+.tree-pane-row.drop {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.tile.drop {
+  border-color: var(--accent);
+}
+/* Ctrl+X marks rows until the paste happens (Explorer dims them too), the drop ring still wins */
+.row.cut,
+.compact-row.cut,
+.tile.cut {
+  opacity: 0.5;
+}
 .tree-pane-twisty {
   width: 16px;
   height: 16px;

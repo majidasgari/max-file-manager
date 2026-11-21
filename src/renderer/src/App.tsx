@@ -78,6 +78,7 @@ import {
   toggleMusic
 } from './music'
 import { appModifier, matchAccel, systemShortcut } from './keys'
+import { dropIsRefused, isSamePath } from './drop.ts'
 import { BLANK_TEMPLATE, NEW_CATEGORIES, NEW_FILE_TEMPLATES, type NewIconName } from './newTemplates.ts'
 import {
   audioTargets,
@@ -2095,6 +2096,18 @@ export default function App() {
 
   const dropInternal = async (paths: string[], dest: string, copy: boolean) => {
     if (!paths.length) return
+    // A folder cannot land inside itself, and moving items into the folder they already sit in is
+    // a no-op; both would queue a job that only fails after the bar had drawn progress for it.
+    if (dropIsRefused(paths, dest)) {
+      setNote(t('پوشه یا فایل را نمی‌شود داخل خودش منتقل کرد'))
+      return
+    }
+    // in place: a move is a no-op, but Explorer-style copy-in-place must still duplicate
+    if (!copy && paths.every((p) => isSamePath(dirOf(p), dest))) {
+      setNote(t('همین‌جاست — چیزی برای جابه‌جایی نیست'))
+      return
+    }
+    dragLog(`job ${copy ? 'copy' : 'move'} ${paths.length} -> ${dest}`)
     await api.jobs.start(copy ? 'copy' : 'move', paths, dest, transferOpts())
     setNote(
       t('{op} {n} مورد به {dest}', {
@@ -2112,6 +2125,7 @@ export default function App() {
     // it was, not as a foreign copy
     const mine = lastDragPaths().length ? lastDragPaths() : dragOutPaths()
     const internal = mine.length > 0 && paths.every((p) => mine.includes(p))
+    dragLog(`files drop n=${paths.length} mine=${mine.length} internal=${internal}`)
     clearDragPaths()
     releaseDragOut()
     if (internal) {
@@ -2294,13 +2308,31 @@ export default function App() {
     })
 
   const pasteClipboard = async (dest: string): Promise<void> => {
-    if (!clip?.paths.length) return
-    const cut = clip.cut
-    await api.jobs.start(cut ? 'move' : 'copy', clip.paths, dest)
+    // our own Ctrl+C/Ctrl+X first, then whatever another app left on the clipboard
+    let paths = clip?.paths ?? []
+    let cut = clip?.cut ?? false
+    if (!paths.length) {
+      const outside = await api.clipboard.readFiles().catch(() => ({ paths: [], cut: false }))
+      paths = outside.paths
+      cut = outside.cut
+    }
+    if (!paths.length) {
+      setNote(t('کلیپ‌بورد فایلی ندارد'))
+      return
+    }
+    // an in-place move is a no-op; an in-place copy is how Explorer duplicates a file
+    if (!cut && paths.every((p) => isSamePath(dirOf(p), dest))) {
+      dragLog('paste in place: copy')
+    } else if (cut && (dropIsRefused(paths, dest) || paths.every((p) => isSamePath(dirOf(p), dest)))) {
+      setNote(t('همین‌جاست — چیزی برای جابه‌جایی نیست'))
+      return
+    }
+    dragLog(`paste ${cut ? 'move' : 'copy'} ${paths.length} -> ${dest}`)
+    await api.jobs.start(cut ? 'move' : 'copy', paths, dest, transferOpts())
     setNote(
       t('{op} برای {n} مورد آغاز شد', {
         op: cut ? t('انتقال') : t('کپی'),
-        n: fa(clip.paths.length)
+        n: fa(paths.length)
       })
     )
     if (cut) setClip(null)
@@ -2313,15 +2345,20 @@ export default function App() {
     const targets = me.sel
     if (!targets.length) {
       setNote(t('چیزی انتخاب نشده'))
+      dragLog(`clip ${cut ? 'cut' : 'copy'} refused: no selection`)
       return
     }
+    dragLog(`clip ${cut ? 'cut' : 'copy'} n=${targets.length}`)
     setClip({ paths: targets, cut })
-    const kind = await api.clipboard.copyFiles(targets, cut)
+    // the in-app clipboard is ready now: say so before the OS write, which can stall while another
+    // program holds the system clipboard open
     setNote(
-      kind === 'files'
-        ? t(cut ? '{n} فایل بریده شد' : '{n} فایل در کلیپ‌بورد کپی شد', { n: fa(targets.length) })
-        : t(cut ? 'مسیر {n} فایل بریده شد' : 'مسیر {n} فایل کپی شد', { n: fa(targets.length) })
+      t(cut ? '{n} فایل بریده شد' : '{n} فایل در کلیپ‌بورد کپی شد', { n: fa(targets.length) })
     )
+    const kind = await api.clipboard.copyFiles(targets, cut)
+    if (kind === 'text') {
+      setNote(t(cut ? 'مسیر {n} فایل بریده شد' : 'مسیر {n} فایل کپی شد', { n: fa(targets.length) }))
+    }
   }
 
   const openNewMenu = (anchor?: { x: number; y: number }) => {
@@ -3777,6 +3814,24 @@ export default function App() {
       const typing =
         !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
       if (!panes) return
+      // Diagnostics for the Ctrl/Cmd chords (copy/cut/paste): shows whether the key arrives at all
+      // and which open surface could be swallowing it.
+      if ((ev.ctrlKey || ev.metaKey) && ev.key) {
+        const open = [
+          editor && 'editor',
+          gallery && 'gallery',
+          menu && 'menu',
+          columnMenu && 'columnMenu',
+          marksMenu && 'marksMenu',
+          settingsOpen && 'settings',
+          propsFor && 'props',
+          syncOpen && 'sync'
+        ].filter(Boolean)
+        dragLog(
+          `key ${ev.ctrlKey ? 'Ctrl' : 'Cmd'}+${ev.key} target=${el?.tagName ?? '-'} ` +
+            `typing=${typing} open=${open.join(',') || '-'}`
+        )
+      }
       if (confirmAsk) {
         if (ev.key === 'Enter') {
           ev.preventDefault()
@@ -4029,6 +4084,7 @@ export default function App() {
       for (const c of COMMANDS) {
         const accel = prefs.shortcuts[c.id] ?? c.key
         if (!accel || !matchAccel(accel, ev)) continue
+        dragLog(`accel ${accel} -> ${c.id}`)
         ev.preventDefault()
         RUN[c.id]()
         return
@@ -4408,6 +4464,7 @@ export default function App() {
               onNav={(d) => go(active, d)}
               onAutoFocus={(on) => updatePrefs({ treeAutoFocus: on })}
               onClose={() => updatePrefs({ treePane: 'off' })}
+              onDropPaths={(paths, dest, copy) => void dropInternal(paths, dest, copy)}
             />
             <div
               className="tree-split"
@@ -4467,6 +4524,7 @@ export default function App() {
             index={i}
             pane={pane}
             active={i === active}
+            cutPaths={clip?.cut ? clip.paths : undefined}
             style={paneFlexStyle}
             sort={sortOf(i)}
             groupBy={(panes[i].fmt?.group ?? prefs.groupBy) as GroupKey}
@@ -4641,6 +4699,7 @@ export default function App() {
               onNav={(d) => go(active, d)}
               onAutoFocus={(on) => updatePrefs({ treeAutoFocus: on })}
               onClose={() => updatePrefs({ treePane: 'off' })}
+              onDropPaths={(paths, dest, copy) => void dropInternal(paths, dest, copy)}
             />
           </>
         )}

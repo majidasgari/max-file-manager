@@ -751,6 +751,8 @@ export type Api = {
   clipboard: {
     releaseFiles(): Promise<boolean>
     copyFiles(paths: string[], cut?: boolean): Promise<'files' | 'text'>
+    /** Files copied in another app (Explorer/Finder/Dolphin), empty when the clipboard holds none. */
+    readFiles(): Promise<{ paths: string[]; cut: boolean }>
     writeText(text: string): Promise<boolean>
     saveImage(dir: string, name: string, data: Uint8Array): Promise<{ path: string } | { error: string }>
   }
