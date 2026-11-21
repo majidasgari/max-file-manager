@@ -77,7 +77,7 @@ import {
   subscribeMusic,
   toggleMusic
 } from './music'
-import { appModifier, matchAccel, systemShortcut } from './keys'
+import { appModifier, matchAccel, physicalKey, systemShortcut } from './keys'
 import { dropIsRefused, isSamePath } from './drop.ts'
 import { BLANK_TEMPLATE, NEW_CATEGORIES, NEW_FILE_TEMPLATES, type NewIconName } from './newTemplates.ts'
 import {
@@ -4040,9 +4040,11 @@ export default function App() {
         setPanes((p) => p && patch(p, active, { sel: [], filter: '' }))
         return
       }
-      if (ev.ctrlKey && /^[1-9]$/.test(ev.key)) {
+      // Ctrl+1…9 switches tabs; the digit is read by position so a Persian layout's «۱» works
+      const tabDigit = /^[1-9]$/.test(ev.key) ? ev.key : physicalKey(ev.code)
+      if (ev.ctrlKey && /^[1-9]$/.test(tabDigit)) {
         ev.preventDefault()
-        jumpTab(Number(ev.key) - 1)
+        jumpTab(Number(tabDigit) - 1)
         return
       }
 

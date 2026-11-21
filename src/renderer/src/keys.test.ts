@@ -31,6 +31,21 @@ test('Cmd is the app modifier on macOS, but a Ctrl+Cmd system chord is never our
   assert.equal(matchAccel('Space', ev({ key: ' ', metaKey: true })), false)
 })
 
+test('system chords follow the key position too', () => {
+  assert.equal(systemShortcut(ev({ key: 'ص', code: 'KeyW', ctrlKey: true }), 'win32'), 'close-window')
+})
+
+test('a non-Latin layout still matches the positional accelerator', () => {
+  // Persian layout: the physical C key prints «ز», V «ر», X «ط»
+  assert.equal(matchAccel('Ctrl+C', ev({ key: 'ز', code: 'KeyC', ctrlKey: true })), true)
+  assert.equal(matchAccel('Ctrl+V', ev({ key: 'ر', code: 'KeyV', ctrlKey: true })), true)
+  assert.equal(matchAccel('Ctrl+X', ev({ key: 'ط', code: 'KeyX', ctrlKey: true })), true)
+  // Persian digits on the number row still switch tabs
+  assert.equal(matchAccel('Ctrl+1', ev({ key: '۱', code: 'Digit1', ctrlKey: true })), true)
+  // a non-Latin key that is not on a letter position matches nothing
+  assert.equal(matchAccel('Ctrl+C', ev({ key: 'ش', code: 'KeyA', ctrlKey: true })), false)
+})
+
 test('accelFromEvent builds a storable string', () => {
   assert.equal(accelFromEvent(ev({ key: 'F7' })), 'F7')
   assert.equal(accelFromEvent(ev({ key: 'z', ctrlKey: true, shiftKey: true })), 'Ctrl+Shift+Z')

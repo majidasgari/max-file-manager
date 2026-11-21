@@ -34,9 +34,32 @@ export function parseAccel(accel: string): Accel {
   return acc
 }
 
+/**
+ * The letter or digit the *key position* carries, whatever the active layout prints on it.
+ *
+ * A Persian, Arabic or Greek layout reports «ز» for the physical C key; desktop shortcuts are about
+ * the position (that is how Explorer keeps Ctrl+C working with a Persian layout), so accelerators
+ * read the code and fall back to the printed character only for keys the code does not name.
+ */
+export function physicalKey(code: string | undefined): string {
+  if (!code) return ''
+  const letter = /^Key([A-Z])$/.exec(code)
+  if (letter) return letter[1]
+  const digit = /^Digit([0-9])$/.exec(code)
+  if (digit) return digit[1]
+  return ''
+}
+
 const keyOf = (ev: KeyboardEvent): string => {
   if (ev.key === ' ') return 'Space'
-  if (ev.key.length === 1) return ev.key.toUpperCase()
+  if (ev.key.length === 1) {
+    // non-Latin (Persian «ز» for C, Persian digit «۱» for 1): the accelerator is the position
+    if (ev.key.charCodeAt(0) > 0x7f) {
+      const physical = physicalKey(ev.code)
+      if (physical) return physical
+    }
+    return ev.key.toUpperCase()
+  }
   return NAMED[ev.key.toLowerCase()] ?? ev.key
 }
 
@@ -123,7 +146,12 @@ type KeyLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 's
 export function systemShortcut(ev: KeyLike, platform: string): SystemAction | null {
   const mac = platform === 'darwin'
   const key = ev.key
-  const k = key.length === 1 ? key.toLowerCase() : key
+  // a Persian/Greek layout prints a local letter on the physical key: the chord is positional
+  const shown =
+    key.length === 1 && key.charCodeAt(0) > 0x7f
+      ? physicalKey((ev as { code?: string }).code) || key
+      : key
+  const k = shown.length === 1 ? shown.toLowerCase() : shown
   const mod = mac ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey
   const plain = !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey
 
