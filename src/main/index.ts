@@ -73,8 +73,10 @@ import {
   openWithDefault,
   openWithInfo,
   runFile,
+  runFileAsAdmin,
   setDefaultApp,
   setDefaultFileManager,
+  shortcutTarget,
   type DesktopApp
 } from './apps.ts'
 import { appIconFile } from './appicons.ts'
@@ -2758,6 +2760,26 @@ app.whenReady().then(async () => {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }
     }
+  })
+
+  /** A file the user marked executable: run it as itself, even when it is neither a script nor an AppImage. */
+  ipcMain.handle('shell:run', async (_e, p: string) => {
+    if (typeof p !== 'string' || !path.isAbsolute(p)) return { error: 'bad_path' }
+    const st = await fs.stat(p).catch(() => null)
+    if (!st?.isFile() || (st.mode & 0o111) === 0) return { error: 'not_executable' }
+    return runFile(p)
+  })
+
+  /** Windows: the folder a `.lnk` points into, so the pane can navigate there instead of the desktop. */
+  ipcMain.handle('apps:shortcutTarget', (_e, p: string) => {
+    if (typeof p !== 'string' || !path.isAbsolute(p)) return ''
+    return shortcutTarget(p)
+  })
+
+  /** Windows: an elevated start — UAC decides, and a refusal comes back as an error. */
+  ipcMain.handle('apps:runAdmin', (_e, p: string) => {
+    if (typeof p !== 'string' || !path.isAbsolute(p)) return { error: 'bad_path' }
+    return runFileAsAdmin(p)
   })
 
   /** Save an image from the renderer's clipboard as a normal file in the target folder. */

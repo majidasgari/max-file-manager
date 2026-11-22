@@ -244,6 +244,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('fs:symlink', target, linkPath),
   renameMany: (pairs: { from: string; to: string }[]) => ipcRenderer.invoke('fs:renameMany', pairs),
   open: (p: string) => ipcRenderer.invoke('shell:open', p),
+  run: (p: string) => ipcRenderer.invoke('shell:run', p),
   clipboard: {
     releaseFiles: () => ipcRenderer.invoke('clipboard:releaseFiles'),
     copyFiles: (paths: string[], cut = false) => ipcRenderer.invoke('clipboard:copyFiles', { paths, cut }),
@@ -257,7 +258,9 @@ contextBridge.exposeInMainWorld('api', {
     openWith: (p: string, all = false) => ipcRenderer.invoke('apps:openWith', { path: p, all }),
     setDefault: (p: string, id: string) => ipcRenderer.invoke('apps:setDefault', { path: p, id }),
     default: (p: string) => ipcRenderer.invoke('apps:default', p),
-    launch: (id: string, p: string) => ipcRenderer.invoke('apps:launch', id, p)
+    launch: (id: string, p: string) => ipcRenderer.invoke('apps:launch', id, p),
+    shortcutTarget: (p: string) => ipcRenderer.invoke('apps:shortcutTarget', p),
+    runAdmin: (p: string) => ipcRenderer.invoke('apps:runAdmin', p)
   },
   preview: (p: string, maxKB?: number) => ipcRenderer.invoke('fs:preview', p, maxKB),
   player: {

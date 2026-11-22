@@ -1641,7 +1641,9 @@ const EN: Record<string, string> = {
   'نمایش/پنهان‌کردن پلی‌لیست': 'Show/hide playlist',
   'کاور ندارد': 'No cover',
   'مدت نامشخص': 'unknown length',
-  'حالت فشرده': 'Compact mode'
+  'حالت فشرده': 'Compact mode',
+  'اجرا با دسترسی مدیر': 'Run as administrator',
+  'باز کردن پوشهٔ مقصد': 'Open target folder'
 }
 
 export function t(key: string, vars?: Record<string, string | number>): string {

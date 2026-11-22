@@ -12,6 +12,7 @@ import {
   subtitleCandidates,
   vttAboveControls,
   type ConvertPlan,
+  type HwEncoder,
   type MediaChapter,
   type MediaProbe
 } from './player-core.ts'
@@ -255,7 +256,8 @@ function startJob(
   final: string,
   plan: ConvertPlan,
   probe: MediaProbe,
-  owner: WebContents
+  owner: WebContents,
+  hw: HwEncoder | undefined
 ): PlayerJobInfo {
   const temp = `${final}.part-${process.pid}-${Date.now()}.${plan.container}`
   const job: Job = {
@@ -284,7 +286,7 @@ function startJob(
   }
   let proc: ChildProcess
   try {
-    proc = spawn(exe, ffmpegArgs(plan, sourcePath, temp), {
+    proc = spawn(exe, ffmpegArgs(plan, sourcePath, temp, hw), {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
@@ -374,7 +376,7 @@ export async function openPlayerFile(file: string, owner: WebContents): Promise<
     return { kind: 'ready', source: { ...(await sourceFor(file, plan.mode, probe)), path: final } }
   }
   await ensureCache()
-  return { kind: 'preparing', job: startJob(id, file, final, plan, probe, owner) }
+  return { kind: 'preparing', job: startJob(id, file, final, plan, probe, owner, encoders.hw) }
 }
 
 /** Save one frame beside the video through FFmpeg, so the canvas never has to be untainted. */

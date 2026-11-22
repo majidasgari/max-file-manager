@@ -202,6 +202,11 @@ stream) deliberately gets no MCP tool: playback, seeking and cinema mode are ren
 and FFmpeg preparation is started only by that visible player. Agents use `preview` or
 `open_preview` for the same file; `read_text`/`properties` still cover file inspection.
 
+The Windows-only menu verbs — «Run as administrator» on an `.exe`/`.msi` and «Open target folder»
+on a `.lnk` — deliberately get no MCP tool: one asks the user for elevation and the other exists to
+steer the visible pane. An agent that needs a file run reaches it through `open`, which never
+elevates; `reveal` covers the folder side.
+
 The music player adds no tool of its own either: it is renderer-only state with one `<audio>`
 element, its playlist is saved in prefs (`musicPlaylist`) and it must stay off unless the user turns
 it on. `command` with `id: "music"` opens or closes the panel through the same `RUN` table the

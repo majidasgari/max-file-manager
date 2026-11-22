@@ -2658,6 +2658,29 @@ export default function App() {
       case 'reveal':
         if (path) void api.reveal(path)
         break
+      case 'run':
+        if (path) {
+          void api.run(path).then((r) => {
+            if ('error' in r) setNote(`اجرا نشد — ${r.error}`)
+          })
+        }
+        break
+      case 'shortcutFolder':
+        if (path) {
+          void api.apps.shortcutTarget(path).then((target) => {
+            // an unreadable target (a Store-app alias) still lands on the shortcut's own folder
+            selectAfterLoad.current[active] = target || null
+            go(active, dirOf(target || path))
+          })
+        }
+        break
+      case 'runAsAdmin':
+        if (path) {
+          void api.apps.runAdmin(path).then((r) => {
+            if ('error' in r) setNote(`اجرا با دسترسی مدیر انجام نشد — ${r.error}`)
+          })
+        }
+        break
       case 'terminal': {
         // a right-click on a folder opens the terminal in that folder; a file means its own
         // folder (flat/search results can live outside the tab), never the archive's fake path
@@ -3033,9 +3056,29 @@ export default function App() {
     }
     // every playable format, not just the writable mp3: this feeds the music player's playlist
     const musicSel = remoteHere ? [] : audioTargets(path, me.sel, isAudioFile)
+    // the exec bit is the one «can this run?» every Unix file carries; Windows uses the extension instead
+    const runnable =
+      !!entry && !entry.dir && api.platform !== 'win32' && ((entry.mode ?? 0) & 0o111) !== 0
 
     const entryMenu: MenuItem[] = [
-      { id: 'open', label: entry?.dir ? t('باز کردن') : t('اجرا کردن'), icon: <PlayIcon /> },
+      {
+        id: 'open',
+        // on Linux/macOS an executable gets its own «Run» row, so this one stays plain «Open»
+        label: entry?.dir || runnable ? t('باز کردن') : t('اجرا کردن'),
+        icon: <PlayIcon />
+      },
+      // the exec bit is the permission: run the file as itself, even when it is no script/AppImage
+      ...(entry && runnable
+        ? [{ id: 'run', label: t('اجرا'), icon: <PlayIcon /> } as MenuItem]
+        : []),
+      // Windows: a `Run` on an installer or a tool often needs elevation, and only the shell can ask
+      ...(entry && !entry.dir && api.platform === 'win32' && /\.(exe|msi)$/i.test(entry.name)
+        ? [{ id: 'runAsAdmin', label: t('اجرا با دسترسی مدیر'), icon: <PlayIcon /> } as MenuItem]
+        : []),
+      // Windows: a shortcut's own folder is usually the Desktop, so its target's folder is the useful one
+      ...(entry && !entry.dir && api.platform === 'win32' && /\.lnk$/i.test(entry.name)
+        ? [{ id: 'shortcutFolder', label: t('باز کردن پوشهٔ مقصد'), icon: <FolderIcon /> } as MenuItem]
+        : []),
       ...(entry && !entry.dir && (isImage(entry.ext) || opensInEditor(entry))
         ? [
             {

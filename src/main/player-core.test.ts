@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   choosePlayback,
   ffmpegArgs,
+  h264Encoder,
   isVideoFile,
   parseByteRange,
   parseFfmpegProgress,
@@ -198,6 +199,30 @@ test('ffmpeg arguments differ correctly between remux and transcode', () => {
   const args = ffmpegArgs(transcode, 'in.avi', 'out.mp4')
   assert.ok(args.includes('libx264'))
   assert.ok(args.some((a) => a.includes("scale='min(1920,iw)':-2")))
+})
+
+test('a hardware encoder replaces libx264, with its device and download-free upload chain', () => {
+  const hevc = probe({ video: { ...probe().video!, codec: 'hevc', width: 3840, height: 2160 } })
+
+  // software only, as the tests above assume
+  assert.deepEqual(h264Encoder(undefined, 0).video.slice(0, 2), ['-c:v', 'libx264'])
+  assert.deepEqual(h264Encoder(undefined, 0).filters, [])
+
+  // VAAPI: the render node is an input option, and the scale happens before one upload
+  const vaapi = choosePlayback(hevc, {
+    ext: 'mkv',
+    encoders: { ...encoders, h264: false, hw: { name: 'vaapi', device: '/dev/dri/renderD128' } }
+  })
+  assert.equal(vaapi.mode, 'transcode')
+  if (vaapi.mode !== 'transcode') throw new Error('expected transcode')
+  const hwArgs = ffmpegArgs(vaapi, 'in.mkv', 'out.mp4', { name: 'vaapi', device: '/dev/dri/renderD128' })
+  assert.deepEqual(hwArgs.slice(6, 9), ['-vaapi_device', '/dev/dri/renderD128', '-i'])
+  assert.equal(hwArgs.includes('libx264'), false)
+  assert.ok(hwArgs.includes('h264_vaapi'))
+  assert.equal(hwArgs[hwArgs.indexOf('-vf') + 1], "scale='min(1920,iw)':-2,format=nv12,hwupload")
+
+  // a VAAPI encoder with no render node is not usable: fall back instead of emitting a broken run
+  assert.ok(ffmpegArgs(vaapi, 'in.mkv', 'out.mp4', { name: 'vaapi' }).includes('libx264'))
 })
 
 test('progress lines report microseconds and clamp to 100%', () => {

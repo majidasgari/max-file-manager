@@ -308,6 +308,49 @@ export const runFile = (file: string): Promise<{ ok: true } | { error: string }>
     }
   })
 
+/** A Windows shortcut: the folder worth opening is its target's, not the `.lnk`'s own. */
+export const isShortcutFile = (file: string): boolean => /\.lnk$/i.test(file)
+
+const WIN_LNK_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:MFM_LNK)
+[pscustomobject]@{ target = [string]$s.TargetPath } | ConvertTo-Json -Compress
+`
+
+/** Where a `.lnk` points, '' when Windows cannot read it (a Store-app alias has no target path). */
+export async function shortcutTarget(file: string): Promise<string> {
+  if (process.platform !== 'win32' || !isShortcutFile(file) || !path.isAbsolute(file)) return ''
+  const raw = await runPowerShell(WIN_LNK_SCRIPT, { MFM_LNK: file })
+  try {
+    const parsed = JSON.parse(raw.trim() || '{}') as { target?: unknown }
+    return typeof parsed.target === 'string' ? parsed.target.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+const WIN_RUN_ADMIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$target = $env:MFM_RUN_PATH
+if ([IO.Path]::GetExtension($target) -ieq '.msi') {
+  Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', ('"' + $target + '"')) -Verb RunAs
+} else {
+  Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) -Verb RunAs
+}
+'ok'
+`
+
+/**
+ * «Run as administrator»: the UAC prompt belongs to the user, and declining it is an error we
+ * report instead of a silent no-op. Only the two shapes «Run» covers may be elevated.
+ */
+export async function runFileAsAdmin(file: string): Promise<{ ok: true } | { error: string }> {
+  if (process.platform !== 'win32') return { error: 'unsupported' }
+  if (!path.isAbsolute(file) || !winRunnableExt(file)) return { error: 'not_executable' }
+  const raw = (await runPowerShell(WIN_RUN_ADMIN_SCRIPT, { MFM_RUN_PATH: file })).trim()
+  return raw === 'ok' ? { ok: true } : { error: 'elevation_failed' }
+}
+
 const appDirs = (): string[] => {
   const dirs = [path.join(os.homedir(), '.local/share/applications'), '/usr/share/applications']
   for (const base of (process.env['XDG_DATA_DIRS'] ?? '').split(':')) {

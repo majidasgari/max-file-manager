@@ -173,6 +173,29 @@ export function PortalPicker() {
     void load(target, showHidden)
   }, [load, showHidden])
 
+  /**
+   * Enter in the path field. A folder goes there; in a save dialog a path that is not a folder is
+   * «folder + file name», which is how a full path is typed into that bar.
+   */
+  const submitAddress = async () => {
+    const typed = (address ?? '').trim()
+    if (!typed) return
+    setAddress(null)
+    if ((await api.list(typed, showHidden).catch(() => null)) || request?.operation !== 'save') {
+      void load(typed, showHidden)
+      return
+    }
+    const cut = Math.max(typed.lastIndexOf('/'), typed.lastIndexOf('\\'))
+    const name = typed.slice(cut + 1)
+    const parent = cut > 0 ? typed.slice(0, cut) : ''
+    if (name && parent && (await api.list(parent, showHidden).catch(() => null))) {
+      setFileName(name)
+      void load(parent, showHidden)
+      return
+    }
+    void load(typed, showHidden)
+  }
+
   const activeFilter = request?.filters[filterIndex] ?? null
   const sorted = useMemo(() => {
     const kept = entries.filter((e) => e.dir || matchesPortalFilter(e.name, e.ext, activeFilter))
@@ -529,11 +552,28 @@ export function PortalPicker() {
 
       <div className="picker-path-row">
         {address === null ? (
-          <nav className="picker-crumbs" aria-label={t('نشانی')} onDoubleClick={() => setAddress(dir)}>
+          <nav
+            className="picker-crumbs"
+            aria-label={t('نشانی')}
+            onDoubleClick={() => setAddress(dir)}
+            // same rule as the panes: a click on the row's empty space edits the path
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setAddress(dir)
+            }}
+          >
             {crumbs(dir).map((c, i) => (
               <Fragment key={c.path}>
                 {i > 0 && <ChevronLeftIcon size={13} />}
-                <button dir="auto" onClick={() => navigate(c.path)}>{c.name}</button>
+                <button
+                  dir="auto"
+                  onClick={(e) => {
+                    // the folder you are already in has nowhere to go: edit the path instead
+                    if (e.detail > 1 || c.path === dir) setAddress(dir)
+                    else navigate(c.path)
+                  }}
+                >
+                  {c.name}
+                </button>
               </Fragment>
             ))}
           </nav>
@@ -545,7 +585,7 @@ export function PortalPicker() {
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') navigate(address)
+              if (e.key === 'Enter') void submitAddress()
               if (e.key === 'Escape') setAddress(null)
             }}
           />

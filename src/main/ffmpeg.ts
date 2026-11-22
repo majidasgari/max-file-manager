@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process'
-import { accessSync, constants as fsConstants, promises as fs } from 'node:fs'
+import { accessSync, constants as fsConstants, promises as fs, readdirSync } from 'node:fs'
 import path from 'node:path'
 import {
+  h264Encoder,
   parseProbe,
   thumbnailSeek,
   type EncoderSupport,
+  type HwEncoder,
   type MediaProbe
 } from './player-core.ts'
 
@@ -109,6 +111,73 @@ export async function probeMedia(file: string): Promise<MediaProbe | null> {
 let encoderCache: EncoderSupport | null = null
 let versionCache = ''
 
+const HW_ORDER: HwEncoder['name'][] =
+  process.platform === 'darwin'
+    ? ['videotoolbox']
+    : process.platform === 'win32'
+      ? ['qsv', 'nvenc', 'amf']
+      : ['vaapi', 'qsv', 'nvenc']
+
+const HW_ENCODER: Record<HwEncoder['name'], string> = {
+  vaapi: 'h264_vaapi',
+  qsv: 'h264_qsv',
+  nvenc: 'h264_nvenc',
+  amf: 'h264_amf',
+  videotoolbox: 'h264_videotoolbox'
+}
+
+/** VAAPI is addressed by a render node; the first one is the GPU the session already uses. */
+function vaapiDevice(): string {
+  try {
+    const node = readdirSync('/dev/dri')
+      .filter((name) => /^renderD\d+$/.test(name))
+      .sort()[0]
+    return node ? path.join('/dev/dri', node) : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Being listed is not working: NVENC ships in most FFmpeg builds with no NVIDIA card present, and
+ * VAAPI/QSV fail when the driver or the render node is missing. One real 5-frame encode through
+ * the same flags the job will use is the only honest test — and it decides once per app start.
+ */
+async function hwWorks(exe: string, hw: HwEncoder): Promise<boolean> {
+  const { prefix, video, filters } = h264Encoder(hw, 0)
+  const args = [
+    '-hide_banner',
+    '-nostdin',
+    '-y',
+    '-loglevel',
+    'error',
+    ...prefix,
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=black:s=320x240:r=25',
+    '-frames:v',
+    '5',
+    ...video,
+    ...(filters.length ? ['-vf', filters.join(',')] : []),
+    '-f',
+    'null',
+    '-'
+  ]
+  const r = await run(exe, args, 20_000, 256 * 1024)
+  return r.code === 0
+}
+
+async function detectHw(exe: string, listed: string): Promise<HwEncoder | undefined> {
+  for (const name of HW_ORDER) {
+    if (!new RegExp(`\\b${HW_ENCODER[name]}\\b`).test(listed)) continue
+    const hw: HwEncoder = { name, device: name === 'vaapi' ? vaapiDevice() : undefined }
+    if (name === 'vaapi' && !hw.device) continue
+    if (await hwWorks(exe, hw)) return hw
+  }
+  return undefined
+}
+
 /** Parsed once: FFmpeg's encoder list does not change while the app runs. */
 export async function encoderSupport(): Promise<EncoderSupport> {
   if (encoderCache) return encoderCache
@@ -122,11 +191,13 @@ export async function encoderSupport(): Promise<EncoderSupport> {
     run(exe, ['-hide_banner', '-version'], 10_000, 512 * 1024)
   ])
   const out = enc.stdout + enc.stderr
+  const hw = await detectHw(exe, out)
   encoderCache = {
-    h264: /\blibx264\b/.test(out),
+    h264: /\blibx264\b/.test(out) || !!hw,
     aac: /\baac\b/.test(out),
     vp9: /\blibvpx-vp9\b/.test(out),
-    opus: /\blibopus\b/.test(out)
+    opus: /\blibopus\b/.test(out),
+    hw
   }
   versionCache = (ver.stdout.split(/\r?\n/)[0] ?? '').trim()
   return encoderCache

@@ -449,7 +449,14 @@ export type PlayerEvent =
 export type PlayerCapabilities = {
   ffmpeg: boolean
   ffprobe: boolean
-  encoders: { h264: boolean; aac: boolean; vp9: boolean; opus: boolean }
+  encoders: {
+    h264: boolean
+    aac: boolean
+    vp9: boolean
+    opus: boolean
+    /** the hardware H.264 encoder FFmpeg proved it can use, absent when it has none */
+    hw?: { name: string; device?: string }
+  }
   version: string
 }
 export type HashResult = { path: string; hash: string | null }
@@ -748,6 +755,8 @@ export type Api = {
   ): Promise<{ ok: true; path: string } | { ok: false; error: string }>
   renameMany(pairs: { from: string; to: string }[]): Promise<Result>
   open(p: string): Promise<{ ok: true } | { error: string }>
+  /** run an executable file as itself (the exec bit is the permission), whatever its type */
+  run(p: string): Promise<{ ok: true } | { error: string }>
   clipboard: {
     releaseFiles(): Promise<boolean>
     copyFiles(paths: string[], cut?: boolean): Promise<'files' | 'text'>
@@ -762,6 +771,10 @@ export type Api = {
     setDefault(p: string, id: string): Promise<{ ok: true } | { error: string }>
     default(p: string): Promise<{ id: string; name: string } | null>
     launch(id: string, p: string): Promise<{ ok: true } | { error: string }>
+    /** Windows: where a `.lnk` points, '' when it has no readable target */
+    shortcutTarget(p: string): Promise<string>
+    /** Windows: start an `.exe`/`.msi` elevated; a declined UAC prompt is an error */
+    runAdmin(p: string): Promise<{ ok: true } | { error: string }>
   }
   remote: {
     /** saved connections; secrets never cross this boundary */

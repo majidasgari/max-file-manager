@@ -117,7 +117,20 @@ export function parseProbe(json: unknown): MediaProbe | null {
   }
 }
 
-export type EncoderSupport = { h264: boolean; aac: boolean; vp9: boolean; opus: boolean }
+export type EncoderSupport = {
+  h264: boolean
+  aac: boolean
+  vp9: boolean
+  opus: boolean
+  /** a hardware H.264 encoder that already proved it works; absent means none */
+  hw?: HwEncoder
+}
+
+/** `device` is VAAPI's render node — it is addressed by file, not by driver name. */
+export type HwEncoder = {
+  name: 'vaapi' | 'qsv' | 'nvenc' | 'amf' | 'videotoolbox'
+  device?: string
+}
 
 export type ConvertPlan = {
   mode: 'remux' | 'transcode'
@@ -213,7 +226,7 @@ export function choosePlayback(
     }
   }
 
-  if (opts.encoders.h264 && (!hasAudio || opts.encoders.aac)) {
+  if ((opts.encoders.h264 || opts.encoders.hw) && (!hasAudio || opts.encoders.aac)) {
     return {
       mode: 'transcode',
       container: 'mp4',
@@ -237,23 +250,78 @@ export function choosePlayback(
 }
 
 /**
+ * Encoder flags for H.264: hardware when one is known to work, libx264 otherwise. `prefix` lands
+ * before `-i` (VAAPI/QSV create their device there) and `filters` join the one `-vf` chain after
+ * the scale, so a downscaled frame is uploaded to the GPU once instead of twice.
+ */
+export function h264Encoder(
+  hw: HwEncoder | undefined,
+  maxWidth: number
+): { prefix: string[]; video: string[]; filters: string[] } {
+  const scale = maxWidth > 0 ? [`scale='min(${maxWidth},iw)':-2`] : []
+  const upload = [...scale, 'format=nv12', 'hwupload']
+  switch (hw?.name) {
+    case 'vaapi':
+      if (!hw.device) break
+      return {
+        prefix: ['-vaapi_device', hw.device],
+        video: ['-c:v', 'h264_vaapi', '-qp', '22'],
+        filters: upload
+      }
+    case 'qsv':
+      return {
+        prefix: ['-init_hw_device', 'qsv=hw', '-filter_hw_device', 'hw'],
+        video: ['-c:v', 'h264_qsv', '-global_quality', '22', '-preset', 'veryfast'],
+        filters: upload
+      }
+    case 'nvenc':
+      return {
+        prefix: [],
+        video: ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0'],
+        filters: scale
+      }
+    case 'amf':
+      return {
+        prefix: [],
+        video: ['-c:v', 'h264_amf', '-rc', 'cqp', '-qp_i', '22', '-qp_p', '22'],
+        filters: scale
+      }
+    case 'videotoolbox':
+      return { prefix: [], video: ['-c:v', 'h264_videotoolbox', '-q:v', '55'], filters: scale }
+  }
+  return {
+    prefix: [],
+    video: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p'],
+    filters: scale
+  }
+}
+
+/**
  * FFmpeg command for a remux/transcode. `-progress pipe:1` is part of the command so the job
  * can report real percentages; thumbnails use their own small command and never call this.
  */
-export function ffmpegArgs(plan: ConvertPlan, input: string, output: string): string[] {
-  const args = ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', '-i', input]
+export function ffmpegArgs(
+  plan: ConvertPlan,
+  input: string,
+  output: string,
+  hw?: HwEncoder
+): string[] {
+  const maxWidth = plan.video === 'copy' ? 0 : plan.maxWidth
+  const enc =
+    plan.video === 'h264'
+      ? h264Encoder(hw, maxWidth)
+      : plan.video === 'vp9'
+        ? {
+            prefix: [],
+            video: ['-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0', '-row-mt', '1', '-cpu-used', '2'],
+            filters: maxWidth > 0 ? [`scale='min(${maxWidth},iw)':-2`] : []
+          }
+        : { prefix: [], video: ['-c:v', 'copy'], filters: [] }
+  const args = ['-hide_banner', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', ...enc.prefix]
+  args.push('-i', input)
   args.push('-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn', '-max_muxing_queue_size', '1024')
-
-  if (plan.video === 'copy') args.push('-c:v', 'copy')
-  else if (plan.video === 'h264') {
-    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p')
-  } else {
-    args.push('-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0', '-row-mt', '1', '-cpu-used', '2')
-  }
-  if (plan.maxWidth > 0 && plan.video !== 'copy') {
-    // keep the aspect ratio; `-2` makes the height even, which H.264 requires
-    args.push('-vf', `scale='min(${plan.maxWidth},iw)':-2`)
-  }
+  args.push(...enc.video)
+  if (enc.filters.length) args.push('-vf', enc.filters.join(','))
 
   if (plan.audio === 'copy') args.push('-c:a', 'copy')
   else if (plan.audio === 'aac') args.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2')
