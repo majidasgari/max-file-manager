@@ -532,6 +532,8 @@ export type Api = {
   wineTakeover(on: boolean, autostart?: boolean): Promise<{ ok: boolean; active: boolean; app: string; error?: string }>
   /** 'win32' | 'linux' | 'darwin' — a few settings only exist on one platform */
   platform: string
+  /** Desktop environment on Linux (e.g. 'KDE', 'GNOME') */
+  desktop?: string
   runScript(
     command: string,
     path?: string,

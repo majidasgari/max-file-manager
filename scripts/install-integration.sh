@@ -51,11 +51,6 @@ fi
 if [ -n "\$APP_PATH" ]; then
   set -- "\$APP_PATH" "\$@"
 fi
-# Electron's transparent frameless window is reliable on XWayland; GNOME/KDE Wayland sessions
-# export DISPLAY, so prefer X11 there and keep native Wayland elsewhere.
-if [ "\${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "\${DISPLAY:-}" ]; then
-  set -- --ozone-platform=x11 "\$@"
-fi
 exec "\$BIN" "\$@"
 EOF
 chmod +x "$LAUNCHER"

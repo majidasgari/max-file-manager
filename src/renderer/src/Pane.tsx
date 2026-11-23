@@ -609,30 +609,32 @@ export function Pane(props: Props) {
     keepDragPaths(paths)
     holdDragOut(paths)
     dragLog(`start ${path} all='${paths.join(',')}'`)
-    // One drag session per gesture. Chromium's own HTML5 drag and `wc.startDrag` in main are two
-    // native drags for the same mouse-down: on Windows the second crashes the process, and on
-    // macOS the second re-activates this app mid-drag (the target app drops behind) while the
-    // pasteboard also carries a URL rather than a file — Telegram reads that as a zero-byte file
-    // promise («file parts invalid»). Cancel the HTML one and keep the real file drag from main;
-    // it lands back here as `Files`, and `dropFiles` recognises our own paths as internal.
-    // Linux keeps the HTML drag: `startDrag` is not reliable under Wayland and both orders were
-    // tested there. A native drag owns the mouse and makes Chromium swallow the drop on its own
-    // source, so it must not start here; App hands over to main only when the pointer leaves the
-    // window for an outside target.
-    if (api.platform !== 'linux') {
+
+    // Windows and macOS: wc.startDrag in main avoids conflicting with Chromium's HTML drag
+    if (api.platform === 'win32' || api.platform === 'darwin') {
       ev.preventDefault()
       api.dragOut(paths)
       return
     }
+
+    // Linux (KDE & Wayland/X11):
+    // HTML5 dataTransfer carries text/uri-list for Wayland compositors (translates to File in browsers),
+    // while api.dragOut invokes wc.startDrag for desktop apps.
     ev.dataTransfer.setData('application/x-mfm', JSON.stringify(paths))
     ev.dataTransfer.setData('text/uri-list', paths.map(fileUri).join('\r\n'))
     ev.dataTransfer.setData('text/plain', paths.join('\n'))
     ev.dataTransfer.effectAllowed = 'all'
+    api.dragOut(paths)
   }
 
   const allowDrop = (ev: React.DragEvent, dest?: string) => {
     const dtTypes = ev.dataTransfer.types
-    if (dtTypes.includes('application/x-mfm') || dtTypes.includes('Files')) {
+    if (
+      dtTypes.includes('application/x-mfm') ||
+      dtTypes.includes('Files') ||
+      dtTypes.includes('text/uri-list') ||
+      dragOutPaths().length > 0
+    ) {
       ev.preventDefault()
       // The native drag of our own rows advertises only copy/move to the OS, and the platform
       // refuses a drop whose effect was not advertised (the sidebar hit the same wall with `link`):

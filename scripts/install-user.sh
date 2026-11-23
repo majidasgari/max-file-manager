@@ -13,6 +13,10 @@ DESKTOP="$HOME/.local/share/applications/max-file-manager.desktop"
 ICON="$HOME/.local/share/icons/hicolor/512x512/apps/max-file-manager.png"
 VERSION="$(node -p "require('$APP_DIR/package.json').version" 2>/dev/null || echo unknown)"
 
+if [ ! -f "$SRC/resources/app.asar" ] || [ -n "$(find "$APP_DIR/out" -newer "$SRC/resources/app.asar" 2>/dev/null | head -n 1)" ]; then
+  (cd "$APP_DIR" && npx electron-builder --linux dir)
+fi
+
 if [ ! -x "$SRC/max-file-manager" ]; then
   echo "no packaged build in $SRC" >&2
   echo "run: npm run dist:linux" >&2
@@ -38,11 +42,6 @@ if [ "$SANDBOX_OK" != 1 ] && command -v unshare >/dev/null 2>&1 && unshare --use
 fi
 if [ "$SANDBOX_OK" != 1 ]; then
   set -- --no-sandbox "$@"
-fi
-# Electron's transparent frameless window is reliable on XWayland; GNOME/KDE Wayland sessions
-# export DISPLAY, so prefer X11 there and keep the native Wayland path elsewhere.
-if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "${DISPLAY:-}" ]; then
-  set -- --ozone-platform=x11 "$@"
 fi
 exec "$HERE/max-file-manager" "$@"
 EOF

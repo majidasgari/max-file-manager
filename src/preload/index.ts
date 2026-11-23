@@ -64,6 +64,10 @@ contextBridge.exposeInMainWorld('api', {
   registerHotkey: (accel: string) => ipcRenderer.invoke('hotkey:register', accel),
   wineTakeover: (on: boolean, autostart = false) => ipcRenderer.invoke('wine:takeover', on, autostart),
   platform: process.platform,
+  desktop:
+    process.env['XDG_CURRENT_DESKTOP'] ||
+    process.env['XDG_SESSION_DESKTOP'] ||
+    (process.env['KDE_FULL_SESSION'] ? 'KDE' : ''),
   runScript: (command: string, path?: string, dir?: string) =>
     ipcRenderer.invoke('app:runScript', { command, path, dir }),
   runCustomCommand: (command: string, path: string) =>

@@ -33,7 +33,7 @@ let dragIcon: Electron.NativeImage | null = null
  * Starts a real OS drag so the file can be dropped into Dolphin, a chat window, an upload field…
  * Called from `ipcRenderer.send` during `dragstart`.
  */
-export async function startFileDrag(wc: WebContents, files: string[]): Promise<{ ok: true } | { error: string }> {
+export function startFileDrag(wc: WebContents, files: string[]): { ok: true } | { error: string } {
   if (wc.isDestroyed()) return { error: 'پنجره بسته شده' }
   const list = files.filter((f) => path.isAbsolute(f))
   if (!list.length) return { error: 'مسیر نامعتبر' }

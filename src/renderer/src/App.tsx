@@ -431,12 +431,6 @@ export default function App() {
   /** type-ahead: the letters typed since the last pause, and when they were typed */
   const typedBuf = useRef('')
   const typedAt = useRef(0)
-  /** the pointer is over this document, so the drag has not left for an outside target */
-  const dragInside = useRef(false)
-  /** the current gesture started on one of our rows; a foreign drag must never start a native one */
-  const dragOwned = useRef(false)
-  /** a native drag was already handed to main for this gesture; never start a second one */
-  const dragHandedOver = useRef(false)
   const [reveal, setReveal] = useState<{ pane: number; path: string; tick: number }>({
     pane: -1,
     path: '',
@@ -538,54 +532,6 @@ export default function App() {
       if (kind === 'music') closeMusic()
     })
   }, [prefs.musicPlayer])
-  // A native drag owns the mouse, and Chromium swallows a drop on the drag's own source, so it is
-  // not started on `dragstart` (that made every in-window drop vanish). It is handed to main only
-  // once the pointer actually leaves the window, which is the only case that needs an outside target.
-  useEffect(() => {
-    const onStart = (ev: DragEvent) => {
-      dragInside.current = true
-      // only a file drag of our own rows may hand over; a bookmark drag must never reuse old paths
-      dragOwned.current = ev.dataTransfer?.types.includes('application/x-mfm') ?? false
-      dragHandedOver.current = false
-    }
-    const onEnter = () => {
-      dragInside.current = true
-    }
-    const onLeave = (ev: DragEvent) => {
-      // relatedTarget === null means the pointer left the document, not just a child element
-      if (ev.relatedTarget) return
-      dragInside.current = false
-      if (!dragOwned.current || dragHandedOver.current) return
-      const paths = dragOutPaths()
-      if (!paths.length) return
-      window.setTimeout(() => {
-        // only hand over if the pointer is still outside (no dragenter came back in)
-        if (!dragOwned.current || dragInside.current || dragHandedOver.current) return
-        const mine = dragOutPaths()
-        if (!mine.length) return
-        dragHandedOver.current = true
-        dragLog(`native hand over ${mine.length} path(s)`)
-        api.dragOut(mine)
-      }, 80)
-    }
-    const onEnd = () => {
-      dragInside.current = false
-      dragOwned.current = false
-      dragHandedOver.current = false
-    }
-    window.addEventListener('dragstart', onStart)
-    window.addEventListener('dragenter', onEnter)
-    window.addEventListener('dragleave', onLeave)
-    window.addEventListener('drop', onEnd)
-    window.addEventListener('dragend', onEnd)
-    return () => {
-      window.removeEventListener('dragstart', onStart)
-      window.removeEventListener('dragenter', onEnter)
-      window.removeEventListener('dragleave', onLeave)
-      window.removeEventListener('drop', onEnd)
-      window.removeEventListener('dragend', onEnd)
-    }
-  }, [])
   const theme: 'dark' | 'light' =
     prefs.theme === 'system' ? (systemDark ? 'dark' : 'light') : prefs.theme
   const setTheme = (t: Prefs['theme'] | ((cur: Prefs['theme']) => Prefs['theme'])) =>
@@ -2120,7 +2066,15 @@ export default function App() {
 
   const dropFiles = async (files: File[], dest: string, copy: boolean) => {
     const paths = files.map((f) => api.pathForFile(f)).filter((p) => typeof p === 'string' && p)
-    if (!paths.length) return
+    if (!paths.length) {
+      const mine = lastDragPaths().length ? lastDragPaths() : dragOutPaths()
+      if (mine.length) {
+        clearDragPaths()
+        releaseDragOut()
+        await dropInternal(mine, dest, copy)
+      }
+      return
+    }
     // a native drag of our own rows comes back as `Files`: treat it as the internal move/copy
     // it was, not as a foreign copy
     const mine = lastDragPaths().length ? lastDragPaths() : dragOutPaths()

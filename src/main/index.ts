@@ -255,23 +255,6 @@ if (
   app.commandLine.appendSwitch('password-store', `kwallet${kdeVersion}`)
 }
 
-// Dragging a file out of this window needs XWayland: under native Wayland `webContents.startDrag`
-// cannot start (Chromium's Wayland drag controller answers «Failed to get focused window») and the
-// renderer's own drag only offers a uri-list, which other apps read as plain text — no file ever
-// arrives. Ozone is chosen before this file runs, so `appendSwitch` is too late: the app re-launches
-// itself once as an XWayland client, the way the installed launcher used to. A flag on the command
-// line (`--ozone-platform=wayland`) still wins, and a smoke run is never re-launched.
-if (
-  process.platform === 'linux' &&
-  process.env['WAYLAND_DISPLAY'] &&
-  process.env['DISPLAY'] &&
-  !process.env['SMOKE_SHOT'] &&
-  !process.argv.some((a) => a.startsWith('--ozone-platform'))
-) {
-  app.relaunch({ args: [...process.argv.slice(1), '--ozone-platform=x11'] })
-  app.exit(0)
-}
-
 // frame/transparent are window-construction options, so the chrome choice is read before the window exists
 /**
  * One sync service for the app: saved jobs, the queue and the scheduler. It reads the jobs from the
@@ -1684,10 +1667,16 @@ app.whenReady().then(async () => {
     if (win && !win.isDestroyed()) win.webContents.send('music:cmd', cmd)
   })
   ipcMain.on('app:dragOut', (e, files: string[]) => {
+    const list = files ?? []
+    if (!list.some((p) => isRemotePath(p))) {
+      const r = startFileDrag(e.sender, list)
+      if ('error' in r) console.error('drag out:', r.error)
+      return
+    }
     void (async () => {
       // a native drag needs real local files: remote rows are materialized first
       const local: string[] = []
-      for (const p of files ?? []) {
+      for (const p of list) {
         if (!isRemotePath(p)) {
           local.push(p)
           continue
@@ -1698,7 +1687,7 @@ app.whenReady().then(async () => {
           console.error('drag out:', err instanceof Error ? err.message : String(err))
         }
       }
-      const r = await startFileDrag(e.sender, local)
+      const r = startFileDrag(e.sender, local)
       // a drag that cannot start must not fail silently: the user sees the row do nothing
       if ('error' in r) console.error('drag out:', r.error)
     })()
