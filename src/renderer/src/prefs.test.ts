@@ -303,3 +303,29 @@ test('sync jobs and pair directions: invalid disk values are dropped, valid ones
   assert.deepEqual(mergePrefs({ syncJobs: 'nope' as never }).syncJobs, [])
   assert.deepEqual(mergePrefs({ syncPairDirs: null as never }).syncPairDirs, {})
 })
+
+test('the conflict policy survives, and the old two checkboxes migrate onto it', () => {
+  assert.equal(mergePrefs({}).transferConflict, 'keep')
+  assert.equal(mergePrefs({ transferConflict: 'overwrite' }).transferConflict, 'overwrite')
+  assert.equal(mergePrefs({ transferConflict: 'nonsense' as any }).transferConflict, 'keep')
+  // a state written before the policy existed
+  assert.equal(mergePrefs({ transferSkipExisting: true } as any).transferConflict, 'skip')
+  assert.equal(mergePrefs({ transferNewerOnly: true } as any).transferConflict, 'newer')
+  // an explicit policy wins over a stale flag
+  assert.equal(
+    mergePrefs({ transferConflict: 'overwrite', transferSkipExisting: true } as any).transferConflict,
+    'overwrite'
+  )
+})
+
+test('the archive engine is opt-in with a bounded ZIP browse size', () => {
+  const off = mergePrefs({})
+  assert.equal(off.archiveEnabled, false)
+  assert.equal(off.archiveZipMaxMB, 100)
+  assert.equal(mergePrefs({ archiveEnabled: true }).archiveEnabled, true)
+  assert.equal(mergePrefs({ archiveEnabled: 'yes' as any }).archiveEnabled, false)
+  assert.equal(mergePrefs({ archiveZipMaxMB: 0 }).archiveZipMaxMB, 0)
+  assert.equal(mergePrefs({ archiveZipMaxMB: 512 }).archiveZipMaxMB, 512)
+  assert.equal(mergePrefs({ archiveZipMaxMB: -5 as any }).archiveZipMaxMB, 100)
+  assert.equal(mergePrefs({ archiveZipMaxMB: 99999 }).archiveZipMaxMB, 100)
+})

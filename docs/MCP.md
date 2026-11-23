@@ -89,6 +89,7 @@ the UI uses (`name, path, dir, size, mtime, ext, mode, uid, gid, nlink, w, h`).
 | `folder_look` | `path` | colour/icon from `.mfm.json`, Dolphin `.directory` or Windows `desktop.ini` |
 | `icons` | `theme?`, `extra[]?` | icon themes, or the icon names inside one theme |
 | `jobs_list` | – | jobs with progress |
+| `job_files` | `id` | per-file log of one transfer: `copied` (rolling window with `dropped` count), `skipped` (`note: exists\|newer`) and `failed` (`note` = the error) |
 | `undo_depth` | – | how many transfers can still be undone |
 | `state` | – | panes, tabs, marks and preferences |
 | `mcp_status` | – | mode, port and the last 50 audit lines |
@@ -109,13 +110,14 @@ the UI uses (`name, path, dir, size, mtime, ext, mode, uid, gid, nlink, w, h`).
 | `create_file` | `dir`, `name`, `content?` | create a new file (never overwrites) |
 | `rename` | `path`, `name` | never overwrites |
 | `rename_many` | `pairs[{from,to}]` | one batch, checked as a whole |
-| `copy` / `move` | `paths[]`, `dest`, `skipExisting?`, `newerOnly?`, `limitBps?` | queued as jobs |
+| `copy` / `move` | `paths[]`, `dest`, `conflict?`, `skipExisting?`, `newerOnly?`, `limitBps?` | queued as jobs; `conflict` is `keep` (default, «name (2)»), `overwrite`, `skip`, or `newer`; the two old booleans still map onto it |
 | `trash` | `paths[]` | system trash |
 | `delete` | `paths[]`, `confirm: true` | permanent, refuses without confirm |
 | `symlink` | `target`, `link` | |
 | `chmod` | `path`, `mode` | `0..0o7777` |
-| `extract` | `archive`, `dest`, `names[]?` | never overwrites (free name) |
-| `create_zip` | `dir`, `name`, `sources[]`, `level?` | streamed |
+| `extract` | `archive`, `dest`, `names[]?`, `password?`, `conflict?`, `subfolder?`, `symlinks?` | conflict: `keep` (default), `overwrite`, `skip`, `newer` |
+| `create_zip` | `dir`, `name`, `sources[]`, `format?`, `level?`, `method?`, `password?`, `encryption?`, `comment?` | streamed; zip levels 0–9, AES-256/192/128 or ZipCrypto |
+| `archive_verify` | `archive`, `password?`, `names[]?` | read-only CRC/HMAC check |
 | `tags_write` | `path?` \| `paths?[]`, `fields`, `cover?`, `coverFromFolder?` | merges ID3v2 into mp3 files, keeping unknown frames; an empty string clears a frame; `cover` is an absolute image path, `""`/`null` clears it, undefined leaves it alone; `coverFromFolder: true` embeds the folder's cover/folder/album/artwork image. Returns `{done, errors[]}` |
 | `tags_number` | `paths[]`, `start?` | sequential track numbers in the given order (`TRCK`), returns `{done, errors[]}` |
 | `export_listing` | `dir`, `name`, `rows[]`, `format`, `theme?` | CSV or PDF |

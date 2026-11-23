@@ -25,7 +25,7 @@ import {
 } from './format'
 import { PreviewPanel } from './PreviewPanel'
 import { TabStrip } from './TabStrip'
-import { CloudMark, EntryIcon, EyeIcon, EyeOffIcon, FilterIcon, LinkIcon, SortIcon } from './Icons'
+import { CloudMark, EntryIcon, EyeIcon, EyeOffIcon, FilterIcon, LinkIcon, LockIcon, SortIcon } from './Icons'
 import {
   ArrowUpIcon,
   ChevronDownIcon,
@@ -1104,6 +1104,11 @@ export function Pane(props: Props) {
                               </span>
                             )}
                             <EntryIcon entry={e} iconSet={props.iconSet} size={19} />
+                            {e.encrypted && (
+                              <span className="encmark" title={t('رمزدار')}>
+                                <LockIcon />
+                              </span>
+                            )}
                             {e.cloud && <CloudMark cloud={e.cloud} />}
                             <span dir="auto" className="trunc">{e.name}</span>
                             {props.showSymlink && e.link && (
@@ -1207,6 +1212,11 @@ export function Pane(props: Props) {
                               </span>
                             )}
                             <EntryIcon entry={e} iconSet={props.iconSet} size={18} />
+                            {e.encrypted && (
+                              <span className="encmark" title={t('رمزدار')}>
+                                <LockIcon />
+                              </span>
+                            )}
                             {e.cloud && <CloudMark cloud={e.cloud} />}
                             <span dir="auto" className="trunc">{e.name}</span>
                             {props.showSymlink && e.link && (
@@ -1332,6 +1342,11 @@ export function Pane(props: Props) {
                             {props.showSymlink && e.link && (
                               <span className="symmark tile-link" title={t('پیوند نمادین')}>
                                 <LinkIcon />
+                              </span>
+                            )}
+                            {e.encrypted && (
+                              <span className="encmark tile-link" title={t('رمزدار')}>
+                                <LockIcon />
                               </span>
                             )}
                           </span>

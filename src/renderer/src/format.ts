@@ -383,7 +383,20 @@ export const sidewaysMove = (key: 'ArrowLeft' | 'ArrowRight', rtl: boolean): Nav
 
 /** Formats the archive reader understands (zip + tar family). */
 export const isArchiveName = (name: string): boolean =>
-  /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tbz2)$/i.test(name)
+  /\.(zip|cbz|tar|tgz|tar\.gz|tar\.bz2|tbz2|tbz|tar\.xz|txz|tar\.zst|tzst)$/i.test(name)
+
+export const isZipName = (name: string): boolean => /\.(zip|cbz)$/i.test(name)
+
+/**
+ * Double-click browsing is limited for ZIP only: a huge ZIP is still a normal file, and the
+ * explicit «Browse archive» menu item bypasses this check. `0` means no limit.
+ */
+export function archiveBrowseAllowed(name: string, size: number, maxMB: number): boolean {
+  if (!isZipName(name)) return true
+  if (!(maxMB > 0)) return true
+  if (!Number.isFinite(size) || size <= 0) return true
+  return size <= maxMB * 1024 * 1024
+}
 
 export type OpenAction =
   | 'navigate'
@@ -402,16 +415,30 @@ export type OpenAction =
  * keep their specialised behaviour for everything that is not an image or a document.
  */
 export function openAction(
-  e: Pick<Entry, 'dir' | 'name' | 'ext' | 'path'>,
+  e: Pick<Entry, 'dir' | 'name' | 'ext' | 'path' | 'size'>,
   mode: 'open' | 'gallery' | 'preview',
-  opts: { hasDefaultApp?: boolean; virtual?: boolean; playlist?: boolean } = {}
+  opts: {
+    hasDefaultApp?: boolean
+    virtual?: boolean
+    playlist?: boolean
+    /** the archive engine is on; false turns a ZIP/TAR into an ordinary file */
+    archive?: boolean
+    /** automatic browsing cap for ZIP/CBZ, in megabytes (`0` = unlimited) */
+    archiveZipMaxMB?: number
+  } = {}
 ): OpenAction {
   if (e.dir) return 'navigate'
   // ahead of the default app: with the music module on, a playlist belongs to the player, not to
   // whatever the desktop would launch
   if (opts.playlist && !opts.virtual && isPlaylistName(e.name)) return 'playlist'
   if (opts.hasDefaultApp) return 'external'
-  if (isArchiveName(e.name)) return 'archive'
+  if (
+    opts.archive !== false &&
+    isArchiveName(e.name) &&
+    archiveBrowseAllowed(e.name, e.size, opts.archiveZipMaxMB ?? 0)
+  ) {
+    return 'archive'
+  }
   if (mode === 'open') return 'external'
   if (mode === 'preview') return 'preview'
   if (isHtmlPath(e.path) && !opts.virtual) return 'preview'

@@ -28,6 +28,11 @@ export type Entry = {
   forceShow?: boolean
   /** the entry lives inside a cloud-synced folder; filled by main, never by the renderer */
   cloud?: { provider: string; state: CloudEntryState; root: boolean }
+  /** inside an archive: the payload needs a password */
+  encrypted?: boolean
+  /** inside an archive: compressed size and raw ZIP method */
+  csize?: number
+  method?: number
 }
 export type DirRef = { name: string; path: string; /** the entry itself is a symbolic link */ link?: boolean }
 export type Listing = { path: string; parent: string | null; entries: Entry[] }

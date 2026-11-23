@@ -2,6 +2,7 @@ import { t } from './i18n.ts'
 import { COMMANDS, COMMAND_BY_ID, DEFAULT_SHORTCUTS } from './commands.ts'
 import { DEFAULT_COLOR_THEME, isColorTheme } from './themes.ts'
 import { cleanPairDirs, cleanSyncJobs, type SyncJob, type SyncMode } from '../../shared/sync.ts'
+import { conflictOf, isConflictPolicy, type ConflictPolicy } from '../../shared/conflict.ts'
 
 /** The toolbar the app ships with; the user can change it in preferences. */
 export const DEFAULT_TOOLBAR = [
@@ -108,6 +109,8 @@ export type Prefs = {
   sidebarTone: 0 | 1 | 2 | 3 | 4 | 5 | 6
   /** file-area surface: 0 = today's panel, 3 = exactly the header surface */
   contentTone: 0 | 1 | 2 | 3
+  /** the operations strip is folded into its header row */
+  jobsCollapsed: boolean
   /** ids of sidebar sections currently collapsed ('places' | 'bookmarks' | 'labels' | 'drives') */
   sidebarCollapsed: string[]
   /** show the removable-devices section in the sidebar */
@@ -136,7 +139,19 @@ export type Prefs = {
   /** folder path → tab colour (hex) chosen from the tab menu */
   tabColors: Record<string, string>
   // archives, gallery and preview
+  /** the archive engine (browse/create/extract) is off until the user enables it */
+  archiveEnabled: boolean
+  /** automatic archive browsing on double-click is limited to ZIP files up to this size */
+  archiveZipMaxMB: number
   zipLevel: number
+  /** last archive format chosen in the compress dialog */
+  archiveFormat: 'zip' | 'tar' | 'tar.gz' | 'tar.zst'
+  /** last zip encryption chosen; the password itself is never stored */
+  archiveEncryption: 'aes256' | 'aes192' | 'aes128' | 'zipcrypto'
+  /** last extract answers, reused as the dialog default */
+  archiveConflict: ConflictPolicy
+  archiveSubfolder: boolean
+  archiveSymlinks: boolean
   imageFormat: 'png' | 'jpeg' | 'webp'
   /** 50..100, only used for jpeg/webp */
   imageQuality: number
@@ -178,8 +193,8 @@ export type Prefs = {
   /** user commands: name → shell line, `{path}` and `{dir}` are substituted */
   scripts: Record<string, string>
   // transfer filters
-  transferSkipExisting: boolean
-  transferNewerOnly: boolean
+  /** what a copy/move does when the destination name is already taken */
+  transferConflict: ConflictPolicy
   /** KB/s ceiling for transfers, 0 = unlimited */
   speedLimitKB: number
   // file operations
@@ -338,6 +353,7 @@ export const DEFAULTS: Prefs = {
   sidebarWidth: 208,
   sidebarTone: 0,
   contentTone: 0,
+  jobsCollapsed: false,
   sidebarCollapsed: [],
   sidebarDrives: true,
   sidebarTreeOpen: [],
@@ -353,7 +369,14 @@ export const DEFAULTS: Prefs = {
   tabIcons: true,
   tabColors: {},
   doubleClick: 'gallery',
+  archiveEnabled: false,
+  archiveZipMaxMB: 100,
   zipLevel: 6,
+  archiveFormat: 'zip',
+  archiveEncryption: 'aes256',
+  archiveConflict: 'keep',
+  archiveSubfolder: false,
+  archiveSymlinks: false,
   imageFormat: 'png',
   imageQuality: 90,
   slideshowSec: 3,
@@ -376,8 +399,7 @@ export const DEFAULTS: Prefs = {
   rememberFolderView: true,
   ignoreFiles: DEFAULT_IGNORE_FILES,
   scripts: {},
-  transferSkipExisting: false,
-  transferNewerOnly: false,
+  transferConflict: 'keep',
   speedLimitKB: 0,
   confirmDelete: true,
   trashByDefault: true,
@@ -586,8 +608,19 @@ const cleanTerminalId = (raw: unknown): string => {
 }
 
 /** Coerces whatever is on disk into a valid Prefs object — a bad value must never crash a boot. */
-export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) | null | undefined): Prefs {
+export function mergePrefs(
+  raw:
+    | (Partial<Prefs> & {
+        showTypeColumn?: boolean
+        /** retired in favour of `transferConflict`; read once so old settings keep their meaning */
+        transferSkipExisting?: boolean
+        transferNewerOnly?: boolean
+      })
+    | null
+    | undefined
+): Prefs {
   const p = { ...DEFAULTS, ...(raw ?? {}) }
+  const stored = (raw ?? {}) as { transferConflict?: unknown }
   const rawVersion = Number((raw as { prefsVersion?: unknown } | null | undefined)?.prefsVersion)
   const version = Number.isFinite(rawVersion) && rawVersion > 0 ? rawVersion : 1
   const shortcuts = normalShortcuts(p.shortcuts)
@@ -658,6 +691,7 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
       typeof p.contentTone === 'number' && [0, 1, 2, 3].includes(p.contentTone)
         ? (p.contentTone as 0 | 1 | 2 | 3)
         : 0,
+    jobsCollapsed: p.jobsCollapsed === true,
     sidebarCollapsed:
       Array.isArray(p.sidebarCollapsed)
         ? p.sidebarCollapsed.filter((x): x is string => typeof x === 'string')
@@ -677,8 +711,26 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
     tabIcons: p.tabIcons !== false,
     tabColors: cleanTabColors(p.tabColors),
     doubleClick: p.doubleClick === 'gallery' || p.doubleClick === 'preview' ? p.doubleClick : 'open',
+    archiveEnabled: p.archiveEnabled === true,
+    archiveZipMaxMB:
+      typeof p.archiveZipMaxMB === 'number' && p.archiveZipMaxMB >= 0 && p.archiveZipMaxMB <= 10240
+        ? Math.round(p.archiveZipMaxMB)
+        : 100,
     zipLevel:
       typeof p.zipLevel === 'number' && p.zipLevel >= 0 && p.zipLevel <= 9 ? Math.floor(p.zipLevel) : 6,
+    archiveFormat:
+      p.archiveFormat === 'tar' || p.archiveFormat === 'tar.gz' || p.archiveFormat === 'tar.zst'
+        ? p.archiveFormat
+        : 'zip',
+    archiveEncryption:
+      p.archiveEncryption === 'aes192' ||
+      p.archiveEncryption === 'aes128' ||
+      p.archiveEncryption === 'zipcrypto'
+        ? p.archiveEncryption
+        : 'aes256',
+    archiveConflict: isConflictPolicy(p.archiveConflict) ? p.archiveConflict : 'keep',
+    archiveSubfolder: p.archiveSubfolder === true,
+    archiveSymlinks: p.archiveSymlinks === true,
     imageFormat:
       p.imageFormat === 'jpeg' || p.imageFormat === 'webp' ? p.imageFormat : 'png',
     imageQuality:
@@ -728,8 +780,13 @@ export function mergePrefs(raw: (Partial<Prefs> & { showTypeColumn?: boolean }) 
     rememberFolderView: p.rememberFolderView !== false,
     ignoreFiles: migratedIgnoreFiles(p.ignoreFiles),
     scripts: normalScripts(p.scripts),
-    transferSkipExisting: p.transferSkipExisting === true,
-    transferNewerOnly: p.transferNewerOnly === true,
+    // the two old checkboxes fold into one policy; a stored policy wins. Read the raw object,
+    // because DEFAULTS already fills transferConflict and would hide a state written before it.
+    transferConflict: conflictOf({
+      conflict: isConflictPolicy(stored.transferConflict) ? stored.transferConflict : undefined,
+      skipExisting: p.transferSkipExisting === true,
+      newerOnly: p.transferNewerOnly === true
+    }),
     speedLimitKB:
       typeof p.speedLimitKB === 'number' && p.speedLimitKB > 0 && p.speedLimitKB < 10_000_000
         ? Math.floor(p.speedLimitKB)

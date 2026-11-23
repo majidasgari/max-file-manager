@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { setLang } from './i18n.ts'
 import test from 'node:test'
-import {clock, seekTarget, errText, childPathIn, thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, parsePlaylist, isPlaylistName, normalizePath, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
+import {clock, seekTarget, errText, childPathIn, thumbUrl, audioTargets, baseName, cleanMarkNames, crumbs, dirOf, groupEntries, isAbsolutePath, isIgnoredName, isNavigablePath, isRemotePath, fa, fileUri, fmtDate, fmtSize, groupLabel, joinPath, kindOf, matchCustomCommand, mediaUrl, menuTargets, modeString, navIndex, openAction, opensInEditor, orderEntries, parsePlaylist, isPlaylistName, archiveBrowseAllowed, isZipName, normalizePath, permLevel, permMode, planRename, reorderItem, sidewaysMove, sortEntries, terminalDir, toJalali, typeLabel, downloadUrl} from './format.ts'
 
 type Entry = {
   name: string
@@ -423,6 +423,35 @@ test('openAction: the «Run» preference beats the HTML preview and the built-in
   // a virtual listing (inside an archive) has nothing to read or preview
   assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'preview', { virtual: true }), 'preview')
   assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'gallery', { virtual: true }), 'external')
+})
+
+test('archive browsing is opt-in and the ZIP size cap only affects double-click', () => {
+  const mb = 1024 * 1024
+  assert.equal(openAction(e('a.zip', false, 10 * mb, 0, 'zip'), 'open', { archive: false }), 'external')
+  assert.equal(
+    openAction(e('a.zip', false, 200 * mb, 0, 'zip'), 'open', { archive: true, archiveZipMaxMB: 100 }),
+    'external'
+  )
+  assert.equal(
+    openAction(e('a.zip', false, 99 * mb, 0, 'zip'), 'open', { archive: true, archiveZipMaxMB: 100 }),
+    'archive'
+  )
+  assert.equal(
+    openAction(e('a.zip', false, 200 * mb, 0, 'zip'), 'open', { archive: true, archiveZipMaxMB: 0 }),
+    'archive',
+    '0 means no limit'
+  )
+  assert.equal(
+    openAction(e('a.tar', false, 200 * mb, 0, 'tar'), 'open', { archive: true, archiveZipMaxMB: 1 }),
+    'archive',
+    'the size cap is for ZIP/CBZ only'
+  )
+  assert.equal(isZipName('a.ZIP'), true)
+  assert.equal(isZipName('a.tar.gz'), false)
+  assert.equal(archiveBrowseAllowed('a.zip', 100 * mb, 100), true)
+  assert.equal(archiveBrowseAllowed('a.zip', 100 * mb + 1, 100), false)
+  assert.equal(archiveBrowseAllowed('a.tar', 10_000 * mb, 1), true)
+  assert.equal(archiveBrowseAllowed('a.zip', 100 * mb, 0), true)
 })
 
 test('parsePlaylist reads local tracks and skips the rest', () => {

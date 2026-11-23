@@ -1,9 +1,9 @@
 import { getLang, setLang, subscribeLang, t } from './i18n.ts'
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { api, musicBridge, type Chrome, type CloudBinding, type CloudView, type DesktopApp, type DirRef, type Drive, type Entry, type FolderMeta, type Job, type RemoteProfile, type SearchProgress, type SyncJob, type SyncMode, type SyncProgress } from './api'
+import { api, musicBridge, type ArchiveProgress, type Chrome, type CloudBinding, type CloudView, type DesktopApp, type DirRef, type Drive, type Entry, type FolderMeta, type Job, type RemoteProfile, type SearchProgress, type SyncJob, type SyncMode, type SyncProgress } from './api'
 import { ContextMenu, type MenuAction, type MenuItem } from './ContextMenu'
 import { DrivesPage } from './DrivesPage'
-import { ArchiveDialog, type ArchiveJob } from './ArchiveDialog'
+import { ArchiveDialog, type ArchiveJob, type ArchiveRunOpts } from './ArchiveDialog'
 import { FolderDialog } from './FolderDialog'
 import { DiffDialog } from './DiffDialog'
 import { Editor } from './Editor'
@@ -387,6 +387,8 @@ export default function App() {
   const [archiveJob, setArchiveJob] = useState<ArchiveJob | null>(null)
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveResult, setArchiveResult] = useState('')
+  const [archiveProgress, setArchiveProgress] = useState<ArchiveProgress | null>(null)
+  const archiveOpRef = useRef<string | null>(null)
   /** the pair the sync workspace was opened for; the workspace owns its own compare/plan state */
   const [syncOpen, setSyncOpen] = useState<{ left: string; right: string } | null>(null)
   const [syncKey, setSyncKey] = useState(0)
@@ -396,6 +398,13 @@ export default function App() {
   useEffect(() => {
     prefsRef.current = prefs
   }, [prefs])
+  useEffect(
+    () =>
+      api.onArchiveProgress((p) => {
+        if (archiveOpRef.current && p && p.opId === archiveOpRef.current) setArchiveProgress(p)
+      }),
+    []
+  )
   const [diff, setDiff] = useState<{ a: string; b: string; result: any } | null>(null)
   const [gallery, setGallery] = useState<{ images: Entry[]; start: string } | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
@@ -1375,8 +1384,7 @@ export default function App() {
   }
 
   const transferOpts = () => ({
-    skipExisting: prefs.transferSkipExisting,
-    newerOnly: prefs.transferNewerOnly,
+    conflict: prefs.transferConflict,
     limitBps: prefs.speedLimitKB > 0 ? prefs.speedLimitKB * 1024 : 0
   })
 
@@ -1415,7 +1423,8 @@ export default function App() {
           hist: [dir],
           hi: 0,
           virtual: null,
-          results: null
+          results: null,
+          archive: null
         })
       }
       const hist = [...s.hist.slice(0, s.hi + 1), dir]
@@ -1426,7 +1435,8 @@ export default function App() {
         hist,
         hi: hist.length - 1,
         virtual: null,
-        results: null
+        results: null,
+        archive: null
       })
     })
   }
@@ -1460,7 +1470,8 @@ export default function App() {
           hist: [s.hist[hi]],
           hi: 0,
           virtual: null,
-          results: null
+          results: null,
+          archive: null
         })
       }
       return patch(p, i, {
@@ -1469,13 +1480,21 @@ export default function App() {
         sel: [],
         filter: '',
         virtual: null,
-        results: null
+        results: null,
+        archive: null
       })
     })
   }
 
   const up = (i: number) => {
-    const parent = panes?.[i].listing?.parent
+    const pane = panes?.[i]
+    if (pane?.archive) {
+      // Inside an archive the "parent" is the folder that holds the archive, not the folder
+      // above the tab: leaving the archive must not skip past it.
+      go(i, dirOf(pane.archive))
+      return
+    }
+    const parent = pane?.listing?.parent
     if (parent) go(i, parent)
   }
 
@@ -1487,17 +1506,8 @@ export default function App() {
       return
     }
     if (me.archive) {
-      const dest = tabOf(panes[1 - i])
       const names = me.sel.map((p) => p.slice(me.archive!.length + 1))
-      setNote(t('در حال استخراج…'))
-      const r = await api.extract(me.archive, names, dest)
-      setNote(
-        r.errors.length
-          ? `استخراج: ${fa(r.done)} فایل، ${fa(r.errors.length)} خطا — ${r.errors[0]}`
-          : `استخراج: ${fa(r.done)} فایل به ${baseName(dest)}`
-      )
-      setPanes((p) => p && patch(p, i, { sel: [] }))
-      await load(1 - i, dest)
+      openExtract(i, undefined, { archive: me.archive, names, dest: tabOf(panes[1 - i]) })
       return
     }
     if (kind === 'copy' || kind === 'move') {
@@ -1603,25 +1613,44 @@ export default function App() {
   }
 
   const openArchive = async (i: number, archive: string) => {
+    if (!prefs.archiveEnabled) {
+      setNote(t('موتور آرشیو خاموش است؛ از تنظیمات فعالش کن'))
+      return
+    }
     if (remoteGuard(archive)) return
     setPanes((p) => p && patch(p, i, { loading: true }))
     const r = await api.archive(archive)
+    if (r.error) {
+      setPanes((p) => p && patch(p, i, { loading: false }))
+      setNote(r.error)
+      return
+    }
+    const label = `${baseName(archive)} · ${fa(r.entries.length)}${r.encrypted ? ` · ${t('رمزدار')}` : ''}`
     setPanes((p) =>
       p &&
       patch(p, i, {
-        virtual: { kind: 'archive', label: `${baseName(archive)} · ${fa(r.entries.length)}` },
+        virtual: { kind: 'archive', label },
         results: r.entries,
         archive,
         sel: [],
         loading: false
       })
     )
+    if (r.encrypted) setNote(t('این آرشیو رمز دارد؛ برای استخراج رمز لازم است'))
   }
 
   /** Compress the selection into a zip; the dialog decides name, level and destination. */
   const openCompress = (i: number) => {
+    if (!prefs.archiveEnabled) {
+      setNote(t('موتور آرشیو خاموش است؛ از تنظیمات فعالش کن'))
+      return
+    }
     if (!panes) return
     const me = panes[i]
+    if (me.archive) {
+      setNote(t('داخل آرشیو نمی‌شود فشرده کرد؛ اول استخراجش کن'))
+      return
+    }
     if (remoteGuard(tabOf(me)) || me.sel.some((p) => remoteGuard(p))) return
     if (!me.sel.length) {
       setNote(t('چیزی انتخاب نشده'))
@@ -1630,6 +1659,7 @@ export default function App() {
     const name =
       me.sel.length === 1 ? baseName(me.sel[0]).replace(/\.[^.]+$/, '') : baseName(tabOf(me))
     setArchiveResult('')
+    setArchiveProgress(null)
     setArchiveJob({
       mode: 'compress',
       files: me.sel,
@@ -1637,54 +1667,139 @@ export default function App() {
       name,
       here: tabOf(me),
       other: tabOf(panes[1 - i]),
-      level: prefs.zipLevel
+      level: prefs.zipLevel,
+      format: prefs.archiveFormat,
+      encryption: prefs.archiveEncryption
     })
   }
 
-  const openExtract = (i: number, path?: string) => {
+  const openExtract = (
+    i: number,
+    path?: string,
+    extra?: { names?: string[]; archive?: string; dest?: string }
+  ) => {
+    if (!prefs.archiveEnabled) {
+      setNote(t('موتور آرشیو خاموش است؛ از تنظیمات فعالش کن'))
+      return
+    }
     if (!panes) return
-    const p = path ?? panes[i].sel[0]
+    const p = extra?.archive ?? path ?? panes[i].sel[0]
     if (remoteGuard(p)) return
-    if (!p || !isArchiveName(baseName(p))) {
+    if (!p || (!extra?.archive && !isArchiveName(baseName(p)))) {
       setNote(t('یک فایل فشرده انتخاب کن'))
       return
     }
     setArchiveResult('')
+    setArchiveProgress(null)
     setArchiveJob({
       mode: 'extract',
       files: [],
       path: p,
+      names: extra?.names ?? [],
       name: baseName(p),
       here: tabOf(panes[i]),
       other: tabOf(panes[1 - i]),
-      level: 0
+      dest: extra?.dest ?? tabOf(panes[i]),
+      level: 0,
+      encryption: prefs.archiveEncryption,
+      conflict: prefs.archiveConflict,
+      subfolder: prefs.archiveSubfolder,
+      symlinks: prefs.archiveSymlinks
     })
   }
 
-  const runArchive = async (opts: { name: string; level: number; dest: string }) => {
+  const runArchive = async (opts: ArchiveRunOpts) => {
     if (!archiveJob || !panes) return
+    const opId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+    archiveOpRef.current = opId
+    setArchiveProgress(null)
     setArchiveBusy(true)
     if (archiveJob.mode === 'compress') {
-      setNote(t('در حال ساخت آرشیو…'))
-      const r = await api.createArchive(opts.dest, opts.name, archiveJob.files, opts.level)
-      setArchiveBusy(false)
-      setArchiveResult(
-        'error' in r
-          ? `${t('آرشیو ساخته نشد')} — ${r.error}`
-          : `${baseName(r.path)} · ${t('{n} فایل', { n: fa(r.files) })} · ${fmtSize(r.bytes, false, prefs.sizeFormat)}`
-      )
-      if (!('error' in r)) setNote(`${t('آرشیو ساخته شد')}: ${baseName(r.path)}`)
+      updatePrefs({
+        archiveFormat: opts.format,
+        archiveEncryption: opts.encryption,
+        zipLevel: Math.min(9, Math.max(0, Math.round(opts.level)))
+      })
     } else {
-      setNote(t('در حال استخراج…'))
-      const r = await api.extract(archiveJob.path, [], opts.dest)
+      updatePrefs({
+        archiveConflict: opts.conflict,
+        archiveSubfolder: opts.subfolder,
+        archiveSymlinks: opts.symlinks
+      })
+    }
+    try {
+      if (archiveJob.mode === 'compress') {
+        setNote(t('در حال ساخت آرشیو…'))
+        const r = await api.createArchive({
+          dir: opts.dest,
+          name: opts.name,
+          sources: archiveJob.files,
+          format: opts.format,
+          level: opts.level,
+          method: opts.level === 0 ? 'store' : 'auto',
+          password: opts.password || undefined,
+          encryption: opts.encryption,
+          comment: opts.comment || undefined,
+          opId
+        })
+        setArchiveResult(
+          'error' in r
+            ? `${t('آرشیو ساخته نشد')} — ${r.error}`
+            : `${baseName(r.path)} · ${t('{n} فایل', { n: fa(r.files) })} · ${fmtSize(r.bytes, false, prefs.sizeFormat)}`
+        )
+        if (!('error' in r)) {
+          setNote(`${t('آرشیو ساخته شد')}: ${baseName(r.path)}`)
+          setArchiveJob(null)
+        }
+      } else {
+        setNote(t('در حال استخراج…'))
+        const r = await api.extract({
+          archive: archiveJob.path,
+          dest: opts.dest,
+          names: archiveJob.names ?? [],
+          password: opts.password || undefined,
+          conflict: opts.conflict,
+          subfolder: opts.subfolder,
+          symlinks: opts.symlinks,
+          opId
+        })
+        const skipped = r.skipped ? ` · ${t('{n} رد شد', { n: fa(r.skipped) })}` : ''
+        setArchiveResult(
+          r.errors.length
+            ? `${t('{n} فایل', { n: fa(r.done) })}${skipped} · ${t('{n} خطا', { n: fa(r.errors.length) })} — ${r.errors[0]}`
+            : `${t('{n} فایل', { n: fa(r.done) })}${skipped} ${getLang() === 'fa' ? '←' : '→'} ${baseName(opts.dest)}`
+        )
+        if (!r.errors.length) setNote(`${t('استخراج انجام شد')}: ${t('{n} فایل', { n: fa(r.done) })}`)
+      }
+    } finally {
+      archiveOpRef.current = null
       setArchiveBusy(false)
-      setArchiveResult(
-        r.errors.length
-          ? `${t('{n} فایل', { n: fa(r.done) })} · ${t('{n} خطا', { n: fa(r.errors.length) })} — ${r.errors[0]}`
-          : `${t('{n} فایل', { n: fa(r.done) })} ${getLang() === 'fa' ? '←' : '→'} ${baseName(opts.dest)}`
-      )
+      setArchiveProgress(null)
     }
     await Promise.all([load(0, tabOf(panes[0])), load(1, tabOf(panes[1]))])
+  }
+
+  const verifyArchiveJob = async (password: string) => {
+    if (!archiveJob) return
+    setArchiveResult(t('در حال بررسی آرشیو…'))
+    const r = await api.verifyArchive({
+      archive: archiveJob.path,
+      password: password || undefined,
+      names: archiveJob.names ?? []
+    })
+    setArchiveResult(
+      r.errors.length
+        ? `${t('{n} خطا', { n: fa(r.errors.length) })} — ${r.errors[0]}`
+        : `${t('آرشیو سالم است')} · ${t('{n} فایل', { n: fa(r.checked) })}`
+    )
+  }
+
+  const cancelArchive = () => {
+    const id = archiveOpRef.current
+    if (id) void api.cancelArchive(id)
   }
 
   /** The editor and the gallery are both full-window modes: entering one leaves the other. */
@@ -1803,7 +1918,9 @@ export default function App() {
     const action = openAction(e, prefs.doubleClick, {
       hasDefaultApp: !!prefs.defaultApps[e.ext],
       virtual: !!panes?.[i].archive,
-      playlist: prefs.musicPlayer
+      playlist: prefs.musicPlayer,
+      archive: prefs.archiveEnabled,
+      archiveZipMaxMB: prefs.archiveZipMaxMB
     })
     if (action === 'navigate') go(i, e.path)
     else if (action === 'archive') void openArchive(i, e.path)
@@ -2488,20 +2605,9 @@ export default function App() {
       case 'archive':
         if (path) void openArchive(active, path)
         break
-      case 'extractOther': {
-        if (!path) break
-        void (async () => {
-        const dest = tabOf(panes![1 - active])
-        const r = await api.extract(path, [], dest)
-        setNote(
-          r.errors.length
-            ? `استخراج: ${fa(r.done)} فایل، ${fa(r.errors.length)} خطا — ${r.errors[0]}`
-            : `استخراج: ${fa(r.done)} فایل به ${baseName(dest)}`
-        )
-        await load(1 - active, dest)
-        })()
+      case 'extractOther':
+        if (path) openExtract(active, path, { dest: tabOf(panes![1 - active]) })
         break
-      }
       case 'compress':
         openCompress(active)
         break
@@ -3092,7 +3198,7 @@ export default function App() {
     ]
 
     const archiveItems: MenuItem[] =
-      !remoteHere && entry && !entry.dir && isArchiveName(entry.name)
+      prefs.archiveEnabled && !remoteHere && entry && !entry.dir && isArchiveName(entry.name)
         ? [
             { id: 'archive', label: t('مرور آرشیو'), icon: <ArchiveOpenIcon /> },
             { id: 'extract', label: t('استخراج…'), icon: <ArchiveOpenIcon /> },
@@ -3113,7 +3219,9 @@ export default function App() {
       ...(me.sel.length > 1
         ? [{ id: 'batch', label: t('تغییر نام گروهی…'), icon: <RenameIcon /> } as MenuItem]
         : []),
-      ...(remoteHere ? [] : [{ id: 'compress', label: t('فشرده‌سازی…'), icon: <ArchiveOpenIcon /> } as MenuItem]),
+      ...(remoteHere || !prefs.archiveEnabled
+        ? []
+        : [{ id: 'compress', label: t('فشرده‌سازی…'), icon: <ArchiveOpenIcon /> } as MenuItem]),
       { sep: true },
       { id: 'trash', label: t('سطل بازیافت'), key: 'F8', icon: <TrashIcon /> },
       { id: 'delete', label: t('حذف قطعی'), key: 'Shift+F8', icon: <TrashIcon />, danger: true }
@@ -4820,6 +4928,10 @@ export default function App() {
 
       <JobsBar
         jobs={jobs}
+        inset={prefs.sidebarOpen && prefs.sidebar === 'docked' ? prefs.sidebarWidth + 5 : 0}
+        insetSide={prefs.sidebarSide === 'right' ? 'end' : 'start'}
+        collapsed={prefs.jobsCollapsed}
+        onToggleCollapsed={() => updatePrefs({ jobsCollapsed: !prefs.jobsCollapsed })}
         sync={syncProgress}
         syncPaused={syncPaused}
         onSyncPause={() => {
@@ -5238,9 +5350,14 @@ export default function App() {
         <ArchiveDialog
           job={archiveJob}
           busy={archiveBusy}
+          progress={archiveProgress}
           result={archiveResult}
           onRun={(o) => void runArchive(o)}
-          onClose={() => setArchiveJob(null)}
+          onVerify={(p) => void verifyArchiveJob(p)}
+          onCancel={cancelArchive}
+          onClose={() => {
+            if (!archiveBusy) setArchiveJob(null)
+          }}
         />
       )}
 

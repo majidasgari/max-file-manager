@@ -14,7 +14,7 @@ A two-pane desktop file manager for Linux (KDE first) and Windows: real tabs, a 
 | **Transfers never block the UI** | a queue with byte progress, speed, pause/resume, cancel, per-item errors and one undo step |
 | **Local, remote and cloud in one place** | FTP/FTPS/SFTP/S3 tabs, and Google Drive, Dropbox, OneDrive and WebDAV folders kept in step by a three-way comparison ([docs/CLOUD.md](docs/CLOUD.md), [docs/REMOTE.md](docs/REMOTE.md)) |
 | **One command registry** | every action is a command (`commands.ts`); the toolbar, the shortcut editor and the status bar read the same list, and every key is rebindable |
-| **Agents, off by default** | a bearer-token loopback API exposing 124 tools over the *same* main-process functions the UI calls ([docs/MCP.md](docs/MCP.md)) |
+| **Agents, off by default** | a bearer-token loopback API exposing 126 tools over the *same* main-process functions the UI calls ([docs/MCP.md](docs/MCP.md)) |
 | **The file view never runs web content** | `contextIsolation`, no `fs` and no `file://` in the renderer; images and PDFs travel over `mfm://`, which serves absolute paths only |
 
 ## Panes, tabs and views
@@ -68,7 +68,7 @@ FTP, FTPS (explicit and implicit), SFTP (password, private key or SSH agent, `~/
 
 ## Archives, images, tags
 
-Zip and tar/tar.gz open as listings, `F5` extracts into the other pane, and a selection can be zipped (streamed, level 0–9). Batch image conversion (JPEG/PNG, longest side, quality) and listing export to CSV (UTF-8 BOM) or PDF. ID3v2 tags are read *and written* in place — merging, never rewriting frames nobody asked to change — so titles, artists, covers and track numbers can be fixed in bulk; EXIF stays read-only.
+The archive engine is opt-in (Settings → Archive) and auto-browsing ZIPs is capped by a size you choose; when enabled, zip and tar/tar.gz/tar.zst open as listings, `F5` extracts into the other pane, and archives are created and extracted by an in-app engine: streamed ZIP with ZIP64, levels 0–9, AES-128/192/256 or legacy ZipCrypto passwords, comments, timestamps, permissions and symlinks; tar with PAX long names plus gzip/zstd. Listing never reads entry data and extraction never buffers the archive, so large files stay cheap. Extraction honours a four-way conflict policy, verifies CRC/HMAC, and refuses zip-slip paths ([docs/ARCHIVES.md](docs/ARCHIVES.md)). Batch image conversion (JPEG/PNG, longest side, quality) and listing export to CSV (UTF-8 BOM) or PDF. ID3v2 tags are read *and written* in place — merging, never rewriting frames nobody asked to change — so titles, artists, covers and track numbers can be fixed in bulk; EXIF stays read-only.
 
 ## The system file chooser (Linux)
 
@@ -76,7 +76,7 @@ The app can answer `org.freedesktop.impl.portal.FileChooser`, so a browser's or 
 
 ## Agents (MCP), off by default
 
-A loopback HTTP API with a bearer token (`~/.config/max-file-manager/mcp.json`, mode `600`) exposes 124 tools over the same operations the UI uses — files, transfers, the index, tags, colours, ratings, cloud folders, players and the window itself — plus a dependency-free stdio bridge (`bin/mfm-mcp.mjs`) and an append-only audit log that records the tool and the *shape* of its arguments, never file contents. Modes: `off` (default), `read`, `write`.
+A loopback HTTP API with a bearer token (`~/.config/max-file-manager/mcp.json`, mode `600`) exposes 126 tools over the same operations the UI uses — files, transfers, the index, tags, colours, ratings, cloud folders, players and the window itself — plus a dependency-free stdio bridge (`bin/mfm-mcp.mjs`) and an append-only audit log that records the tool and the *shape* of its arguments, never file contents. Modes: `off` (default), `read`, `write`.
 
 ![agents settings](docs/screenshot-agents.png)
 
@@ -101,7 +101,7 @@ The roadmap the pages were derived from: [docs/PREFERENCES.md](docs/PREFERENCES.
 ```sh
 npm install
 npm run dev        # dev window with hot reload
-npm test           # 494 unit tests: transfers, undo, search, archives, previews, hashes,
+npm test           # 541 unit tests: transfers, undo, search, archives, previews, hashes,
                    # folder meta, icon packs, keys, prefs, sorting, templates, cloud compare
 npm run typecheck
 npm run build && npm start
@@ -132,7 +132,9 @@ src/main/index.ts        window and chrome, filesystem IPC, folder sizes, sessio
 src/main/jobs.ts         transfer queue: progress, pause, cancel, undo, batch rename, mkdir
 src/main/search.ts       recursive walk, name matcher, content search, duplicate finder
 src/main/searchdb.ts     SQLite FTS5 index of the chosen folders
-src/main/archives.ts     zip/tar listing, extraction and creation
+src/main/zip-archive.ts  ZIP listing/ZIP64, streaming extraction, AES/ZipCrypto, creation
+src/main/tar-archive.ts  tar (ustar/pax/GNU) with gzip and zstd
+src/main/archives.ts     archive surface: format detection, sources, conflict policy, progress
 src/main/meta.ts         per-folder colour/icon/labels/notes/pins in the folder's own .mfm.json
 src/main/cloud-*.ts      Drive / Dropbox / OneDrive / WebDAV clients, the sync engine and its store
 src/main/remotes.ts      FTP, SFTP and S3 profiles with keyring-backed secrets

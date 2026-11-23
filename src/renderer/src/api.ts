@@ -1,3 +1,4 @@
+import type { ConflictPolicy } from '../../shared/conflict.ts'
 import type { PortalFilter } from '../../shared/portal-filters.ts'
 import type { ProfileDraft, RemoteProfile } from '../../shared/remote-profile.ts'
 import type {
@@ -250,6 +251,52 @@ export type Entry = {
   forceShow?: boolean
   /** inside a cloud binding; `root` draws the provider badge, a child only a state dot */
   cloud?: { provider: string; state: CloudEntryState; root: boolean }
+  /** inside an archive: the payload needs a password */
+  encrypted?: boolean
+  /** inside an archive: compressed size and raw ZIP method (0 store, 8 deflate, 93 zstd) */
+  csize?: number
+  method?: number
+}
+
+export type ArchiveFormat = 'zip' | 'tar' | 'tar.gz' | 'tar.zst'
+export type ArchiveEncryption = 'aes256' | 'aes192' | 'aes128' | 'zipcrypto'
+export type ArchiveProgress = {
+  opId?: string
+  phase: 'compress' | 'extract'
+  done: number
+  total: number
+  bytes: number
+  totalBytes: number
+  name?: string
+}
+export type ArchiveListing = {
+  entries: Entry[]
+  capped: boolean
+  format?: string
+  encrypted?: boolean
+  error?: string
+}
+export type ArchiveCreateInput = {
+  dir: string
+  name: string
+  sources: string[]
+  format?: ArchiveFormat
+  level?: number
+  method?: 'auto' | 'store' | 'deflate'
+  password?: string
+  encryption?: ArchiveEncryption
+  comment?: string
+  opId?: string
+}
+export type ArchiveExtractInput = {
+  archive: string
+  dest: string
+  names?: string[]
+  password?: string
+  conflict?: ConflictPolicy
+  subfolder?: boolean
+  symlinks?: boolean
+  opId?: string
 }
 export type SearchHit = {
   path: string
@@ -354,6 +401,8 @@ export type Job = {
   id: string
   kind: JobKind
   label: string
+  /** destination folder of this transfer */
+  dest?: string
   state: JobState
   bytes: number
   done: number
@@ -361,8 +410,29 @@ export type Job = {
   filesDone: number
   speed: number
   skipped?: number
+  /** files that replaced an existing destination file */
+  overwrites?: number
+  /** what this job did when a destination name was taken */
+  conflict?: ConflictPolicy
   current: string
   errors: string[]
+}
+
+/** One line of a job's per-file log. */
+export type JobFile = {
+  path: string
+  state: 'copied' | 'skipped' | 'failed'
+  size?: number
+  /** this copy replaced a file that was already there */
+  overwrote?: boolean
+  /** 'exists' | 'newer' for a filtered skip, or the error text of a failure */
+  note?: string
+}
+
+export type JobLog = {
+  copied: { entries: JobFile[]; total: number; dropped: number }
+  skipped: { entries: JobFile[]; total: number }
+  failed: { entries: JobFile[]; total: number }
 }
 
 export type StoredState = {
@@ -526,7 +596,7 @@ export type Api = {
   remove(paths: string[], permanent: boolean): Promise<Result>
   walk(dir: string, opts: WalkOpts): Promise<WalkResult>
   dupes(dir: string): Promise<{ entries: Entry[]; capped: boolean }>
-  archive(p: string): Promise<{ entries: Entry[]; capped: boolean }>
+  archive(p: string): Promise<ArchiveListing>
   registerHotkey(accel: string): Promise<{ ok: boolean; accel: string }>
   /** Windows only: hand Win+E to the keyboard-hook helper (or retire it) */
   wineTakeover(on: boolean, autostart?: boolean): Promise<{ ok: boolean; active: boolean; app: string; error?: string }>
@@ -724,12 +794,16 @@ export type Api = {
   writeText(path: string, text: string): Promise<{ ok: true } | { error: string }>
   htmlToPdf(html: string, out: string, theme?: string): Promise<{ path: string } | { error: string }>
   createArchive(
-    dir: string,
-    name: string,
-    sources: string[],
-    level?: number
+    a: ArchiveCreateInput
   ): Promise<{ path: string; files: number; bytes: number } | { error: string }>
-  extract(archive: string, names: string[], dest: string): Promise<Result>
+  extract(a: ArchiveExtractInput): Promise<{ done: number; skipped: number; bytes: number; errors: string[] }>
+  verifyArchive(a: {
+    archive: string
+    password?: string
+    names?: string[]
+  }): Promise<{ ok: boolean; checked: number; errors: string[] }>
+  cancelArchive(opId: string): Promise<boolean>
+  onArchiveProgress(cb: (v: ArchiveProgress) => void): () => void
   getMeta(dir: string): Promise<FolderMeta | null>
   labelPalette(): Promise<{ id: string; name: string; color: string }[]>
   setLabel(dir: string, name: string, label: string | null): Promise<Record<string, string>>
@@ -811,12 +885,18 @@ export type Api = {
       kind: JobKind,
       sources: string[],
       dest: string,
-      opts?: { skipExisting?: boolean; newerOnly?: boolean; limitBps?: number }
+      opts?: {
+        conflict?: ConflictPolicy
+        skipExisting?: boolean
+        newerOnly?: boolean
+        limitBps?: number
+      }
     ): Promise<Job>
     pause(id: string): Promise<void>
     resume(id: string): Promise<void>
     cancel(id: string): Promise<void>
     list(): Promise<Job[]>
+    files(id: string): Promise<JobLog | null>
     clear(): Promise<void>
     onUpdate(cb: (job: Job) => void): () => void
   }

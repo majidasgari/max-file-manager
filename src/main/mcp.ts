@@ -69,6 +69,7 @@ const TOOLS: McpTool[] = [
 
   // ── transfers and undo ─────────────────────────────────────────────────────
   { name: 'jobs_list', description: 'transfer jobs and progress', read: true, input: {} },
+  { name: 'job_files', description: 'per-file log of one transfer: copied, skipped by the filters and failed, with sizes and reasons', read: true, input: { id: 'string' } },
   { name: 'undo_depth', description: 'how many transfers can still be undone', read: true, input: {} },
 
   // ── window and preferences ─────────────────────────────────────────────────
@@ -88,14 +89,15 @@ const TOOLS: McpTool[] = [
   { name: 'create_file', description: 'create a new empty file or with text', read: false, input: { dir: 'string', name: 'string', content: 'string?' } },
   { name: 'rename', description: 'rename one file (never overwrites)', read: false, input: { path: 'string', name: 'string' } },
   { name: 'rename_many', description: 'rename many files in one batch', read: false, input: { pairs: 'object[]' } },
-  { name: 'copy', description: 'queue a copy into a local folder or remote URI (any direction)', read: false, input: { paths: 'string[]', dest: 'string', skipExisting: 'boolean?', newerOnly: 'boolean?', limitBps: 'number?' } },
-  { name: 'move', description: 'queue a move into a local folder or remote URI (any direction)', read: false, input: { paths: 'string[]', dest: 'string', skipExisting: 'boolean?', newerOnly: 'boolean?', limitBps: 'number?' } },
+  { name: 'copy', description: 'queue a copy into a local folder or remote URI (any direction); conflict is keep|overwrite|skip|newer', read: false, input: { paths: 'string[]', dest: 'string', conflict: 'string?', skipExisting: 'boolean?', newerOnly: 'boolean?', limitBps: 'number?' } },
+  { name: 'move', description: 'queue a move into a local folder or remote URI (any direction); conflict is keep|overwrite|skip|newer', read: false, input: { paths: 'string[]', dest: 'string', conflict: 'string?', skipExisting: 'boolean?', newerOnly: 'boolean?', limitBps: 'number?' } },
   { name: 'trash', description: 'send to the system trash', read: false, input: { paths: 'string[]' } },
   { name: 'delete', description: 'permanent delete, needs confirm:true', read: false, input: { paths: 'string[]', confirm: 'boolean' } },
   { name: 'symlink', description: 'create a symbolic link', read: false, input: { target: 'string', link: 'string' } },
   { name: 'chmod', description: 'change permission bits of a path', read: false, input: { path: 'string', mode: 'number' } },
-  { name: 'extract', description: 'extract an archive (never overwrites)', read: false, input: { archive: 'string', dest: 'string', names: 'string[]?' } },
-  { name: 'create_zip', description: 'zip files into a folder', read: false, input: { dir: 'string', name: 'string', sources: 'string[]', level: 'number?' } },
+  { name: 'extract', description: 'extract a zip/tar archive with optional password and conflict policy', read: false, input: { archive: 'string', dest: 'string', names: 'string[]?', password: 'string?', conflict: 'string?', subfolder: 'boolean?', symlinks: 'boolean?' } },
+  { name: 'create_zip', description: 'create a zip/tar archive; zip supports levels, AES/ZipCrypto passwords and comments', read: false, input: { dir: 'string', name: 'string', sources: 'string[]', format: 'string?', level: 'number?', method: 'string?', password: 'string?', encryption: 'string?', comment: 'string?' } },
+  { name: 'archive_verify', description: 'read every archive entry to check CRC/HMAC (zip) without writing', read: true, input: { archive: 'string', password: 'string?', names: 'string[]?' } },
   { name: 'tags_write', description: 'merge ID3v2 tags into mp3 files, keeping unknown frames; an empty string removes a frame; optional cover image or folder cover', read: false, input: { path: 'string?', paths: 'string[]?', fields: 'object', cover: 'string?', coverFromFolder: 'boolean?' } },
   { name: 'tags_number', description: 'number mp3 files in the given order with sequential track numbers', read: false, input: { paths: 'string[]', start: 'number?' } },
   { name: 'export_listing', description: 'write a folder listing as CSV or PDF', read: false, input: { dir: 'string', name: 'string', rows: 'object[]', format: 'string', theme: 'string?' } },

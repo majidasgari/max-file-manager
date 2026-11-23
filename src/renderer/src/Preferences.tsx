@@ -1,5 +1,5 @@
 import { t } from './i18n.ts'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api, type SearchProgress } from './api'
 import {
   COLUMNS,
@@ -12,6 +12,7 @@ import {
   type CustomCommand,
   type Prefs
 } from './prefs'
+import { conflictOf, type ConflictPolicy } from '../../shared/conflict.ts'
 import { fa, isAbsolutePath } from './format'
 import { SettingsIcon, XIcon } from './Icons'
 import { AgentsPage } from './AgentsPage'
@@ -49,6 +50,7 @@ type Page =
   | 'filetypes'
   | 'defaultApps'
   | 'archive'
+  | 'media'
   | 'transfer'
   | 'cloud'
   | 'operations'
@@ -67,13 +69,17 @@ const PAGES: { id: Page; label: string }[] = [
   { id: 'search', label: 'جست‌وجو' },
   { id: 'filetypes', label: 'انواع فایل' },
   { id: 'defaultApps', label: 'برنامه‌های پیش‌فرض' },
-  { id: 'archive', label: 'بایگانی و گالری' },
+  { id: 'archive', label: 'بایگانی' },
+  { id: 'media', label: 'تصویر و رسانه' },
   { id: 'transfer', label: 'انتقال' },
   { id: 'cloud', label: 'ابرها' },
   { id: 'operations', label: 'عملیات فایل' },
   { id: 'launch', label: 'راه‌اندازی' },
   { id: 'advanced', label: 'پیشرفته' }
 ]
+
+/** Every settings tab keeps its own scroll offset for the life of the window. */
+const PAGE_SCROLL = new Map<Page, number>()
 
 type Props = {
   prefs: Prefs
@@ -109,6 +115,18 @@ export function Preferences({
   const [osDefault, setOsDefault] = useState('')
   const [newRoot, setNewRoot] = useState('')
   const [page, setPage] = useState<Page>(openPage ?? 'appearance')
+  const bodyRef = useRef<HTMLElement | null>(null)
+  const switchPage = (next: Page) => {
+    if (next === page) return
+    const body = bodyRef.current
+    if (body) PAGE_SCROLL.set(page, body.scrollTop)
+    setPage(next)
+  }
+  // Restore after the new tab is in the DOM; a tab never visited starts at the top.
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (body) body.scrollTop = PAGE_SCROLL.get(page) ?? 0
+  }, [page])
   const [capturing, setCapturing] = useState<string | null>(null)
   const [isDefault, setIsDefault] = useState<boolean | null>(null)
   const [settingDefault, setSettingDefault] = useState(false)
@@ -358,7 +376,7 @@ export function Preferences({
             <button
               key={p.id}
               className={'prefs-tab' + (page === p.id ? ' on' : '')}
-              onClick={() => setPage(p.id)}
+              onClick={() => switchPage(p.id)}
             >
               {t(p.label)}
             </button>
@@ -367,7 +385,7 @@ export function Preferences({
           <button className="prefs-tab" onClick={onClose}>{t('بستن')}</button>
         </nav>
 
-        <section className="prefs-body">
+        <section className="prefs-body" ref={bodyRef}>
           {page === 'appearance' && (
             <>
               <div className="pref-group">{t('زبان و ظاهر')}</div>
@@ -1354,20 +1372,92 @@ export function Preferences({
             <>
               <div className="pref-group">{t('آرشیو')}</div>
               {row(
-                t('سطح فشرده‌سازی zip'),
-                t('۰ = بدون فشرده‌سازی (سریع‌ترین)، ۹ = بیشترین فشرده‌سازی'),
-                <div className="inline-field">
-                  <input
-                    type="number"
-                    min={0}
-                    max={9}
-                    value={prefs.zipLevel}
-                    onChange={(e) =>
-                      onChange({ zipLevel: Math.min(9, Math.max(0, Number(e.target.value) || 0)) })
-                    }
-                  />
+                t('فعال کردن موتور آرشیو'),
+                t('مرور، ساخت و استخراج zip/tar؛ وقتی خاموش است فایل‌ها مثل فایل معمولی باز می‌شوند'),
+                check(prefs.archiveEnabled, 'archiveEnabled')
+              )}
+              {!prefs.archiveEnabled && (
+                <div className="hint archive-off-hint">
+                  {t('موتور آرشیو خاموش است. برای دیدن تنظیماتش آن را روشن کن.')}
                 </div>
               )}
+              {prefs.archiveEnabled && (
+                <>
+                  {row(
+                    t('سطح فشرده‌سازی zip'),
+                    t('۰ = بدون فشرده‌سازی (سریع‌ترین)، ۹ = بیشترین فشرده‌سازی'),
+                    <div className="inline-field">
+                      <input
+                        type="number"
+                        min={0}
+                        max={9}
+                        value={prefs.zipLevel}
+                        onChange={(e) =>
+                          onChange({ zipLevel: Math.min(9, Math.max(0, Number(e.target.value) || 0)) })
+                        }
+                      />
+                    </div>
+                  )}
+                  {row(
+                    t('قالب پیش‌فرض آرشیو'),
+                    t('دیالوگ فشرده‌سازی با همین قالب باز می‌شود'),
+                    <select
+                      className="pref-input"
+                      value={prefs.archiveFormat}
+                      onChange={(e) =>
+                        onChange({ archiveFormat: e.target.value as Prefs['archiveFormat'] })
+                      }
+                    >
+                      <option value="zip">ZIP (.zip)</option>
+                      <option value="tar.gz">TAR.GZ (.tar.gz)</option>
+                      <option value="tar">TAR (.tar)</option>
+                      <option value="tar.zst">TAR.ZST (.tar.zst)</option>
+                    </select>
+                  )}
+                  {row(
+                    t('رمزنگاری پیش‌فرض zip'),
+                    t('AES امن است؛ ZipCrypto فقط برای سازگاری'),
+                    <select
+                      className="pref-input"
+                      value={prefs.archiveEncryption}
+                      onChange={(e) =>
+                        onChange({ archiveEncryption: e.target.value as Prefs['archiveEncryption'] })
+                      }
+                    >
+                      <option value="aes256">AES-256</option>
+                      <option value="aes192">AES-192</option>
+                      <option value="aes128">AES-128</option>
+                      <option value="zipcrypto">ZipCrypto (legacy)</option>
+                    </select>
+                  )}
+                  {row(
+                    t('مرور خودکار zip تا حجم'),
+                    t('بالاتر از این حجم، دوبار کلیک فایل را با برنامهٔ پیش‌فرض باز می‌کند؛ مرور دستی از منوی راست‌کلیک همیشه ممکن است. ۰ = بدون محدودیت'),
+                    <div className="inline-field">
+                      <input
+                        type="number"
+                        min={0}
+                        max={10240}
+                        value={prefs.archiveZipMaxMB}
+                        onChange={(e) =>
+                          onChange({
+                            archiveZipMaxMB: Math.min(
+                              10240,
+                              Math.max(0, Number(e.target.value) || 0)
+                            )
+                          })
+                        }
+                      />
+                      <span>MB</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {page === 'media' && (
+            <>
               <div className="pref-group">{t('تصویر و گالری')}</div>
               {row(
                 t('قالب ذخیرهٔ تصویر'),
@@ -1446,15 +1536,24 @@ export function Preferences({
           {page === 'transfer' && (
             <>
               {row(
-                t('رد کردن فایل‌های موجود'),
-                t('اگر نامی در مقصد هست، همان‌جا بمانَد و کپی نشود (به‌جای ساختن «نام (۲)»)'),
-                check(prefs.transferSkipExisting, 'transferSkipExisting')
+                t('وقتی نامی در مقصد هست'),
+                t('برای همهٔ کپی/انتقال‌ها: دکمه‌ها، کلیدها، کشیدن‌و‌رهاکردن و MCP'),
+                <select
+                  className="pref-input"
+                  value={prefs.transferConflict}
+                  onChange={(e) =>
+                    onChange({ transferConflict: conflictOf({ conflict: e.target.value as ConflictPolicy }) })
+                  }
+                >
+                  <option value="keep">{t('نگه‌داشتن هر دو')}</option>
+                  <option value="overwrite">{t('رونویسی همه')}</option>
+                  <option value="skip">{t('رد کردن همه')}</option>
+                  <option value="newer">{t('فقط جدیدترها')}</option>
+                </select>
               )}
-              {row(
-                t('فقط جدیدترها'),
-                t('اگر فایل مقصد جدیدتر یا هم‌زمان باشد، منتقل نشود'),
-                check(prefs.transferNewerOnly, 'transferNewerOnly')
-              )}
+              <div className="hint">
+                {t('«نگه‌داشتن هر دو» هیچ فایلی را از دست نمی‌دهد (نام تکراری «(۲)» می‌گیرد)؛ «رونویسی همه» جای فایل مقصد می‌نویسد؛ «رد کردن همه» فایل مقصد را دست‌نخورده می‌گذارد؛ «فقط جدیدترها» فقط وقتی رونویسی می‌کند که مبدأ تازه‌تر باشد.')}
+              </div>
               {row(
                 t('محدودیت سرعت'),
                 t('کیلوبایت بر ثانیه؛ ۰ یعنی بی‌نهایت'),

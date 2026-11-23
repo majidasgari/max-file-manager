@@ -2,6 +2,7 @@ import { createReadStream, createWriteStream, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { freeName } from './ops.ts'
+import { conflictOf, type ConflictPolicy } from '../shared/conflict.ts'
 import { isRemotePath, remoteJoin, remoteName, remoteOriginKey } from '../shared/remote-path.ts'
 import type { RemoteControl, RemoteFs } from './remote-core.ts'
 import type { Result } from './types.ts'
@@ -9,10 +10,34 @@ import type { Result } from './types.ts'
 export type JobKind = 'copy' | 'move'
 export type JobState = 'queued' | 'running' | 'paused' | 'done' | 'cancelled' | 'error'
 
+/** One line of a job's file log: what happened to a single path. */
+export type JobFile = {
+  path: string
+  state: 'copied' | 'skipped' | 'failed'
+  size?: number
+  /** this copy replaced a file that was already there */
+  overwrote?: boolean
+  /** a stable token ('exists' | 'newer') for a skip, or the error text of a failure */
+  note?: string
+}
+
+/**
+ * The per-file log of a transfer. Copied entries are a rolling window (a 40k-file folder must not
+ * grow the strip's memory or IPC payload), while skips and failures are kept in full: they are the
+ * lines the user actually goes looking for.
+ */
+export type JobLog = {
+  copied: { entries: JobFile[]; total: number; dropped: number }
+  skipped: { entries: JobFile[]; total: number }
+  failed: { entries: JobFile[]; total: number }
+}
+
 export type Job = {
   id: string
   kind: JobKind
   label: string
+  /** where the files are going, so the strip can name the target instead of guessing */
+  dest: string
   state: JobState
   bytes: number
   done: number
@@ -21,15 +46,21 @@ export type Job = {
   speed: number
   current: string
   errors: string[]
-  /** sources left alone by the transfer filters */
+  /** sources left alone by the conflict policy */
   skipped: number
+  /** files that replaced an existing destination file */
+  overwrites: number
+  /** what this job does when the destination name is taken */
+  conflict: ConflictPolicy
 }
 
-/** Transfer filters the user can set in preferences. */
+/** Transfer options the user can set in preferences. */
 export type JobOpts = {
-  /** a name that already exists in the destination is left alone instead of becoming "name (2)" */
+  /** keep both (default), replace, skip, or replace only when the source is newer */
+  conflict?: ConflictPolicy
+  /** legacy aliases of conflict: 'skip' */
   skipExisting?: boolean
-  /** only copy when the source is newer than the existing destination file */
+  /** legacy aliases of conflict: 'newer' */
   newerOnly?: boolean
   /** bytes per second ceiling, 0 or missing = unlimited */
   limitBps?: number
@@ -44,6 +75,8 @@ export type Engine = {
   resume(id: string): void
   cancel(id: string): void
   list(): Job[]
+  /** the per-file log of one job, or null when it is unknown or already cleared */
+  files(id: string): JobLog | null
   clear(): void
   renameMany(pairs: { from: string; to: string }[]): Promise<Result>
   makeDir(dir: string, name: string): Promise<Result>
@@ -79,13 +112,18 @@ async function measure(p: string): Promise<{ bytes: number; files: number }> {
   return { bytes, files }
 }
 
+/** Called once per file that made it to the destination, with enough to log it. */
+type OnFile = (file?: { path: string; size: number; overwrote?: boolean }) => void
+
 async function copyFile(
   src: string,
   dest: string,
   ctl: Ctl,
   onBytes: (n: number) => void,
-  onFile: () => void
+  onFile: OnFile,
+  checkExists = false
 ): Promise<void> {
+  const replaced = checkExists ? !!(await fs.lstat(dest).catch(() => null)) : false
   const rs = createReadStream(src, { highWaterMark: 1 << 20 })
   const ws = createWriteStream(dest)
   let aborted = false
@@ -127,7 +165,7 @@ async function copyFile(
   })
   const st = await fs.stat(src).catch(() => null)
   if (st) await fs.utimes(dest, st.atime, st.mtime).catch(() => {})
-  onFile()
+  onFile({ path: src, size: st?.size ?? 0, overwrote: replaced })
 }
 
 async function copyTree(
@@ -135,23 +173,24 @@ async function copyTree(
   dest: string,
   ctl: Ctl,
   onBytes: (n: number) => void,
-  onFile: () => void
+  onFile: OnFile,
+  checkExists = false
 ): Promise<void> {
   if (ctl.cancelled) throw new Error('cancelled')
   const st = await fs.lstat(src)
   if (st.isSymbolicLink()) {
     await fs.symlink(await fs.readlink(src), dest)
-    onFile()
+    onFile({ path: src, size: 0 })
     return
   }
   if (st.isDirectory()) {
     await fs.mkdir(dest, { recursive: true })
     for (const k of await fs.readdir(src)) {
-      await copyTree(path.join(src, k), path.join(dest, k), ctl, onBytes, onFile)
+      await copyTree(path.join(src, k), path.join(dest, k), ctl, onBytes, onFile, checkExists)
     }
     return
   }
-  await copyFile(src, dest, ctl, onBytes, onFile)
+  await copyFile(src, dest, ctl, onBytes, onFile, checkExists)
 }
 
 // shortcut: cancelled transfers leave a partially filled directory (files are removed, dirs are not) and undo only covers move/rename/mkdir; upgrade when transfers get a journal.
@@ -242,13 +281,14 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
     dest: string,
     ctl: Ctl,
     onBytes: (n: number) => void,
-    onFile: () => void
+    onFile: OnFile,
+    checkExists = false
   ): Promise<void> {
     if (ctl.cancelled) throw new Error('cancelled')
     const srcRemote = isRemotePath(src)
     const destRemote = isRemotePath(dest)
     if (!srcRemote && !destRemote) {
-      await copyTree(src, dest, ctl, onBytes, onFile)
+      await copyTree(src, dest, ctl, onBytes, onFile, checkExists)
       return
     }
     const rfs = requireRemote()
@@ -262,7 +302,7 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
         const listing = await rfs.list(src, true)
         for (const entry of listing.entries) {
           if (ctl.cancelled) throw new Error('cancelled')
-          await transferTree(entry.path, joinAny(dest, entry.name), ctl, onBytes, onFile)
+          await transferTree(entry.path, joinAny(dest, entry.name), ctl, onBytes, onFile, checkExists)
         }
         return
       }
@@ -279,14 +319,14 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
       } else {
         await rfs.downloadFile(src, dest, control)
       }
-      onFile()
+      onFile({ path: src, size: st.size })
       return
     }
     const st = await fs.lstat(src)
     if (st.isSymbolicLink()) {
       if (destRemote) throw new Error('symbolic links cannot be copied to a remote folder')
       await fs.symlink(await fs.readlink(src), dest)
-      onFile()
+      onFile({ path: src, size: 0 })
       return
     }
     if (st.isDirectory()) {
@@ -294,13 +334,15 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
       else await fs.mkdir(dest, { recursive: true })
       for (const name of await fs.readdir(src)) {
         if (ctl.cancelled) throw new Error('cancelled')
-        await transferTree(path.join(src, name), joinAny(dest, name), ctl, onBytes, onFile)
+        await transferTree(path.join(src, name), joinAny(dest, name), ctl, onBytes, onFile, checkExists)
       }
       return
     }
-    if (destRemote) await rfs.uploadFile(src, dest, control)
-    else await copyFile(src, dest, ctl, onBytes, onFile)
-    if (destRemote) onFile()
+    if (destRemote) {
+      const replaced = checkExists && !!(await rfs.stat(dest))
+      await rfs.uploadFile(src, dest, control)
+      onFile({ path: src, size: st.size, overwrote: replaced })
+    } else await copyFile(src, dest, ctl, onBytes, onFile, checkExists)
   }
 
   const lastEmit = new Map<string, number>()
@@ -309,6 +351,38 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
     if (!force && now - (lastEmit.get(job.id) ?? 0) < 120) return
     lastEmit.set(job.id, now)
     emit(clone(job))
+  }
+  /** copied lines are capped (rolling); skips and failures are kept whole */
+  const LOG_CAP = 2000
+  const logs = new Map<string, JobLog>()
+  const logFor = (id: string): JobLog => {
+    let l = logs.get(id)
+    if (!l) {
+      l = {
+        copied: { entries: [], total: 0, dropped: 0 },
+        skipped: { entries: [], total: 0 },
+        failed: { entries: [], total: 0 }
+      }
+      logs.set(id, l)
+    }
+    return l
+  }
+  const record = (job: Job, entry: JobFile): void => {
+    const l = logFor(job.id)
+    if (entry.state === 'copied') {
+      l.copied.total++
+      l.copied.entries.push(entry)
+      // prune in one go instead of shifting on every file
+      if (l.copied.entries.length > LOG_CAP + 512) {
+        const drop = l.copied.entries.length - LOG_CAP
+        l.copied.entries.splice(0, drop)
+        l.copied.dropped += drop
+      }
+      return
+    }
+    const bucket = entry.state === 'skipped' ? l.skipped : l.failed
+    bucket.total++
+    if (bucket.entries.length < LOG_CAP) bucket.entries.push(entry)
   }
   const undoPush = (label: string, pairs: [string, string][], inverse: UndoRec['inverse'] = 'rename') => {
     undoStack.push({ label, pairs, inverse })
@@ -319,7 +393,9 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
     const job: Job = {
       id: 'j' + ++seq,
       kind,
-      label: '',
+      // named from the start, so a queued row in the strip is not a bare “…”
+      label: sources.length === 1 ? baseOf(sources[0]) : `${sources.length} مورد`,
+      dest,
       state: 'queued',
       bytes: 0,
       done: 0,
@@ -328,12 +404,17 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
       speed: 0,
       current: '',
       errors: [],
-      skipped: 0
+      skipped: 0,
+      overwrites: 0,
+      conflict: 'keep'
     }
     const ctl: Ctl = { paused: false, cancelled: false, limitBps: opts.limitBps ?? 0 }
     jobs.set(job.id, job)
     ctls.set(job.id, ctl)
     push(job, true)
+
+    const policy = conflictOf(opts)
+    job.conflict = policy
 
     chained = chained.then(async () => {
       if (ctl.cancelled) {
@@ -342,7 +423,6 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
         return
       }
       job.state = 'running'
-      job.label = sources.length === 1 ? baseOf(sources[0]) : `${sources.length} مورد`
       push(job, true)
 
       const pairs: [string, string][] = []
@@ -356,24 +436,28 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
         }
         for (const s of sources) {
           const natural = joinAny(dest, baseOf(s))
-          if (opts.skipExisting || opts.newerOnly) {
+          // keep both is the one policy that never needs to look: freeName answers for a free name too
+          let target = policy === 'keep' ? await freeNameAny(natural) : natural
+          if (policy !== 'keep') {
             const there = await statAny(natural)
             if (there) {
-              if (opts.skipExisting) {
+              if (policy === 'skip') {
                 job.skipped++
+                record(job, { path: s, state: 'skipped', note: 'exists' })
                 continue
               }
-              const here = await statAny(s)
-              if (here && there.mtime >= here.mtime) {
-                job.skipped++
-                continue
+              if (policy === 'newer') {
+                const here = await statAny(s)
+                if (here && there.mtime >= here.mtime) {
+                  job.skipped++
+                  record(job, { path: s, state: 'skipped', note: 'newer' })
+                  continue
+                }
               }
-              // newerOnly and the destination is older: this run replaces it on purpose
-              pairs.push([s, natural])
-              continue
+              // overwrite (or newer with an older destination): this run replaces it on purpose
             }
           }
-          pairs.push([s, await freeNameAny(natural)])
+          pairs.push([s, target])
           const m = await measureAny(s)
           job.bytes += m.bytes
           job.files += m.files
@@ -411,10 +495,21 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
                 job.done += n
                 push(job)
               },
-              () => {
+              (file) => {
                 job.filesDone++
+                if (file) {
+                  if (file.overwrote) job.overwrites++
+                  record(job, {
+                    path: file.path,
+                    state: 'copied',
+                    size: file.size,
+                    overwrote: file.overwrote
+                  })
+                }
                 push(job)
-              }
+              },
+              // overwrite and newer may replace an existing file, so the copy reports it
+              policy === 'overwrite' || policy === 'newer'
             )
             if (kind === 'move') {
               await removeAny(src)
@@ -422,7 +517,9 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
             }
           } catch (e: any) {
             if (ctl.cancelled) break
-            job.errors.push(`${baseOf(src)}: ${e?.message ?? String(e)}`)
+            const note = String(e?.message ?? e)
+            job.errors.push(`${baseOf(src)}: ${note}`)
+            record(job, { path: src, state: 'failed', note })
           }
         }
         if (movedPairs.length) undoPush(`انتقال ${movedPairs.length} مورد`, movedPairs)
@@ -457,8 +554,21 @@ export function createEngine(emit: (job: Job) => void, remote?: RemoteFs): Engin
       if (ctl) ctl.cancelled = true
     },
     list: () => [...jobs.values()].map(clone),
+    files: (id) => {
+      const l = logs.get(id)
+      if (!l) return null
+      return {
+        copied: { entries: [...l.copied.entries], total: l.copied.total, dropped: l.copied.dropped },
+        skipped: { entries: [...l.skipped.entries], total: l.skipped.total },
+        failed: { entries: [...l.failed.entries], total: l.failed.total }
+      }
+    },
     clear: () => {
-      for (const [id, j] of jobs) if (j.state !== 'running' && j.state !== 'paused') jobs.delete(id)
+      for (const [id, j] of jobs)
+        if (j.state !== 'running' && j.state !== 'paused') {
+          jobs.delete(id)
+          logs.delete(id)
+        }
     },
     renameMany: async (pairs) => {
       const errors: string[] = []

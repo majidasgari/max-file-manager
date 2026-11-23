@@ -217,10 +217,15 @@ contextBridge.exposeInMainWorld('api', {
   writeText: (path: string, text: string) => ipcRenderer.invoke('fs:writeText', { path, text }),
   htmlToPdf: (html: string, out: string, theme?: string) =>
     ipcRenderer.invoke('pdf:html', { html, out, theme }),
-  createArchive: (dir: string, name: string, sources: string[], level?: number) =>
-    ipcRenderer.invoke('fs:archiveCreate', { dir, name, sources, level }),
-  extract: (archive: string, names: string[], dest: string) =>
-    ipcRenderer.invoke('fs:extract', { archive, names, dest }),
+  createArchive: (a: Record<string, unknown>) => ipcRenderer.invoke('fs:archiveCreate', a),
+  extract: (a: Record<string, unknown>) => ipcRenderer.invoke('fs:extract', a),
+  verifyArchive: (a: Record<string, unknown>) => ipcRenderer.invoke('fs:archiveVerify', a),
+  cancelArchive: (opId: string) => ipcRenderer.invoke('fs:archiveCancel', opId),
+  onArchiveProgress: (cb: (v: unknown) => void) => {
+    const fn = (_e: unknown, v: unknown) => cb(v)
+    ipcRenderer.on('archive:progress', fn)
+    return () => ipcRenderer.removeListener('archive:progress', fn)
+  },
   getMeta: (dir: string) => ipcRenderer.invoke('meta:get', dir),
   labelPalette: () => ipcRenderer.invoke('meta:labels'),
   setFormat: (dir: string, format: unknown) => ipcRenderer.invoke('meta:setFormat', { dir, format }),
@@ -295,6 +300,7 @@ contextBridge.exposeInMainWorld('api', {
     resume: (id: string) => ipcRenderer.invoke('job:resume', id),
     cancel: (id: string) => ipcRenderer.invoke('job:cancel', id),
     list: () => ipcRenderer.invoke('job:list'),
+    files: (id: string) => ipcRenderer.invoke('job:files', id),
     clear: () => ipcRenderer.invoke('job:clear'),
     onUpdate: (cb: (job: unknown) => void) => {
       const fn = (_e: unknown, job: unknown) => cb(job)

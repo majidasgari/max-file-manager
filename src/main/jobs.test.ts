@@ -199,3 +199,149 @@ test('newerOnly copies an older destination file but skips a newer one', async (
   assert.equal(await fs.readFile(path.join(dest, 'older.txt'), 'utf8'), 'from source', 'older dest is replaced')
   assert.equal(await fs.readFile(path.join(dest, 'newer.txt'), 'utf8'), 'from dest')
 })
+
+test('the per-file log lists what was copied inside a folder, what a filter skipped and why', async () => {
+  const root = await tmp()
+  const src = path.join(root, 'src')
+  const dest = path.join(root, 'dest')
+  await fs.mkdir(path.join(src, 'dir'), { recursive: true })
+  await fs.mkdir(dest)
+  await fs.writeFile(path.join(src, 'dir', 'inner.txt'), 'inner')
+  await fs.writeFile(path.join(src, 'dir', 'deep.txt'), 'deep')
+  await fs.writeFile(path.join(src, 'fresh.txt'), 'only here')
+  await fs.writeFile(path.join(dest, 'fresh.txt'), 'already there')
+
+  const { e, seen } = engine()
+  const job = e.start('copy', [path.join(src, 'dir'), path.join(src, 'fresh.txt')], dest, {
+    skipExisting: true
+  })
+  const done = await settle(seen)
+  assert.equal(done.state, 'done')
+
+  const log = e.files(job.id)
+  assert.ok(log, 'a finished job keeps its log')
+  assert.deepEqual(
+    log!.copied.entries.map((f) => path.basename(f.path)).sort(),
+    ['deep.txt', 'inner.txt'],
+    'files inside the folder are logged one by one'
+  )
+  assert.equal(log!.copied.total, 2)
+  assert.equal(log!.copied.entries.find((f) => f.path.endsWith('inner.txt'))?.size, 5)
+  assert.deepEqual(log!.skipped.entries, [
+    { path: path.join(src, 'fresh.txt'), state: 'skipped', note: 'exists' }
+  ])
+  assert.equal(log!.failed.total, 0)
+})
+
+test('clearing finished jobs drops their logs too', async () => {
+  const root = await tmp()
+  const dest = path.join(root, 'dest')
+  const src = path.join(root, 'one.txt')
+  await fs.mkdir(dest)
+  await fs.writeFile(src, 'x')
+
+  const { e, seen } = engine()
+  const job = e.start('copy', [src], dest)
+  await settle(seen)
+  assert.ok(e.files(job.id))
+  e.clear()
+  assert.equal(e.files(job.id), null)
+  assert.equal(e.files('nope'), null)
+})
+
+test('conflict: overwrite replaces the destination and logs it as overwritten', async () => {
+  const root = await tmp()
+  const src = path.join(root, 'src')
+  const dest = path.join(root, 'dest')
+  await fs.mkdir(src)
+  await fs.mkdir(dest)
+  await fs.writeFile(path.join(src, 'same.txt'), 'new')
+  await fs.writeFile(path.join(src, 'fresh.txt'), 'fresh')
+  await fs.writeFile(path.join(dest, 'same.txt'), 'old')
+
+  const { e, seen } = engine()
+  const job = e.start('copy', [path.join(src, 'same.txt'), path.join(src, 'fresh.txt')], dest, {
+    conflict: 'overwrite'
+  })
+  const done = await settle(seen)
+
+  assert.equal(done.state, 'done')
+  assert.equal(done.conflict, 'overwrite')
+  assert.equal(done.skipped, 0)
+  assert.equal(done.overwrites, 1, 'one destination file was replaced')
+  assert.equal(await fs.readFile(path.join(dest, 'same.txt'), 'utf8'), 'new')
+  assert.equal(await exists(path.join(dest, 'same (2).txt')), false, 'overwrite never renames')
+  const log = e.files(job.id)!
+  assert.equal(log.copied.total, 2)
+  assert.equal(log.copied.entries.find((f) => f.path.endsWith('fresh.txt'))?.overwrote, false)
+  assert.equal(log.copied.entries.find((f) => f.path.endsWith('same.txt'))?.overwrote, true)
+})
+
+test('conflict: skip leaves every existing name alone, keep makes a free name', async () => {
+  const root = await tmp()
+  const src = path.join(root, 'src')
+  const dest = path.join(root, 'dest')
+  await fs.mkdir(src)
+  await fs.mkdir(dest)
+  await fs.writeFile(path.join(src, 'a.txt'), 'new')
+  await fs.writeFile(path.join(dest, 'a.txt'), 'old')
+
+  const skip = engine()
+  skip.e.start('copy', [path.join(src, 'a.txt')], dest, { conflict: 'skip' })
+  const skipJob = await settle(skip.seen)
+  assert.equal(skipJob.skipped, 1)
+  assert.equal(skipJob.conflict, 'skip')
+  assert.equal(await fs.readFile(path.join(dest, 'a.txt'), 'utf8'), 'old')
+  assert.deepEqual(skip.e.files(skipJob.id)!.skipped.entries[0].note, 'exists')
+
+  const keep = engine()
+  keep.e.start('copy', [path.join(src, 'a.txt')], dest, { conflict: 'keep' })
+  await settle(keep.seen)
+  assert.equal(await fs.readFile(path.join(dest, 'a.txt'), 'utf8'), 'old')
+  assert.equal(await fs.readFile(path.join(dest, 'a (2).txt'), 'utf8'), 'new', 'keep both adds a suffix')
+})
+
+test('conflict: newer replaces an older destination but leaves a newer one', async () => {
+  const root = await tmp()
+  const src = path.join(root, 'src')
+  const dest = path.join(root, 'dest')
+  await fs.mkdir(src)
+  await fs.mkdir(dest)
+  await fs.writeFile(path.join(src, 'older.txt'), 'from source')
+  await fs.writeFile(path.join(dest, 'older.txt'), 'from dest')
+  const old = new Date(Date.now() - 60_000)
+  await fs.utimes(path.join(dest, 'older.txt'), old, old)
+  await fs.writeFile(path.join(src, 'newer.txt'), 'from source')
+  await fs.writeFile(path.join(dest, 'newer.txt'), 'from dest')
+
+  const { e, seen } = engine()
+  const job = e.start('copy', [path.join(src, 'older.txt'), path.join(src, 'newer.txt')], dest, {
+    conflict: 'newer'
+  })
+  const done = await settle(seen)
+
+  assert.equal(done.conflict, 'newer')
+  assert.equal(done.skipped, 1)
+  assert.equal(done.overwrites, 1)
+  assert.equal(await fs.readFile(path.join(dest, 'older.txt'), 'utf8'), 'from source')
+  assert.equal(await fs.readFile(path.join(dest, 'newer.txt'), 'utf8'), 'from dest')
+  assert.equal(e.files(job.id)!.skipped.entries[0].note, 'newer')
+})
+
+test('the legacy skipExisting/newerOnly flags still pick a policy', async () => {
+  const root = await tmp()
+  const src = path.join(root, 'src')
+  const dest = path.join(root, 'dest')
+  await fs.mkdir(src)
+  await fs.mkdir(dest)
+  await fs.writeFile(path.join(src, 'x.txt'), 'new')
+  await fs.writeFile(path.join(dest, 'x.txt'), 'old')
+
+  const { e, seen } = engine()
+  const job = e.start('copy', [path.join(src, 'x.txt')], dest, { skipExisting: true })
+  const done = await settle(seen)
+  assert.equal(done.conflict, 'skip')
+  assert.equal(job.conflict, 'skip')
+  assert.equal(await fs.readFile(path.join(dest, 'x.txt'), 'utf8'), 'old')
+  assert.equal(done.skipped, 1)
+})

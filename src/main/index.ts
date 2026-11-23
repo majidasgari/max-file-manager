@@ -28,7 +28,14 @@ import path from 'node:path'
 import os from 'node:os'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
-import { extract, listArchive, createZip, type ZipLevel } from './archives.ts'
+import {
+  createArchive,
+  extract,
+  isArchiveEncryption,
+  isArchiveFormat,
+  listArchive,
+  verifyArchive
+} from './archives.ts'
 import { targetPath } from './launch-path.ts'
 import { saveImage, saveImageAs } from './image.ts'
 import { hashMany } from './hash.ts'
@@ -171,6 +178,7 @@ import { createRemoteCache, type RemoteCache } from './remote-cache.ts'
 import { closeFtpClients } from './remote-ftp.ts'
 import type { DirRef, Entry } from './types.ts'
 import type { ProfileDraft } from '../shared/remote-profile.ts'
+import { conflictOf, type ConflictPolicy } from '../shared/conflict.ts'
 import { PortalServer, type PortalRequestData } from './portal.ts'
 import { installPortal, portalInstalled, uninstallPortal } from './portal-install.ts'
 
@@ -1593,24 +1601,137 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:dupes', (_e, dir: string) =>
     path.isAbsolute(dir) ? findDupes(dir) : { entries: [], capped: false }
   )
+  /** The archive engine is opt-in; the UI gate and these guards read the same preference. */
+  const archiveFeatureOn = (): boolean => {
+    const state = readStore<{ prefs?: { archiveEnabled?: boolean } }>('state')
+    return state?.prefs?.archiveEnabled === true
+  }
+  const ARCHIVE_OFF = 'موتور آرشیو خاموش است؛ از تنظیمات فعالش کن'
+  const archiveOps = new Map<string, AbortController>()
+  const archiveOp = (id: string): { opId: string; controller: AbortController } => {
+    const opId = typeof id === 'string' ? id.slice(0, 80) : ''
+    const controller = new AbortController()
+    if (opId) archiveOps.set(opId, controller)
+    return { opId, controller }
+  }
+  const archiveProgress =
+    (sender: Electron.WebContents, opId: string) =>
+    (p: { phase: 'compress' | 'extract'; done: number; total: number; bytes: number; totalBytes: number; name?: string }) => {
+      if (sender.isDestroyed()) return
+      try {
+        sender.send('archive:progress', { opId, ...p })
+      } catch {
+        // the window went away mid-operation; the archive itself is still finished
+      }
+    }
+
   ipcMain.handle('fs:archive', (_e, p: string) =>
-    path.isAbsolute(p) ? listArchive(p) : { entries: [], capped: false }
+    !archiveFeatureOn()
+      ? { entries: [], capped: false, error: ARCHIVE_OFF }
+      : path.isAbsolute(p)
+        ? listArchive(p)
+        : { entries: [], capped: false, error: 'مسیر نامعتبر است' }
   )
   ipcMain.handle(
     'fs:archiveCreate',
-    (_e, a: { dir: string; name: string; sources: string[]; level?: number }) =>
-      createZip(
-        a?.dir ?? '',
-        String(a?.name ?? 'archive'),
-        a?.sources ?? [],
-        Math.min(9, Math.max(0, Number(a?.level ?? 6))) as ZipLevel
-      )
+    async (
+      e,
+      a: {
+        dir?: string
+        name?: string
+        sources?: string[]
+        format?: string
+        level?: number
+        method?: string
+        password?: string
+        encryption?: string
+        comment?: string
+        opId?: string
+      }
+    ) => {
+      if (!archiveFeatureOn()) return { error: ARCHIVE_OFF }
+      if (!path.isAbsolute(a?.dir ?? '')) return { error: 'مقصد نامعتبر است' }
+      const sources = Array.isArray(a?.sources)
+        ? a.sources.filter((p): p is string => typeof p === 'string' && path.isAbsolute(p))
+        : []
+      if (!sources.length) return { error: 'مسیر نامعتبر' }
+      const { opId, controller } = archiveOp(String(a?.opId ?? ''))
+      try {
+        return await createArchive({
+          dir: a!.dir!,
+          name: String(a?.name ?? 'archive'),
+          sources,
+          format: isArchiveFormat(a?.format) ? a!.format! : 'zip',
+          level: Math.min(9, Math.max(0, Number(a?.level ?? 6))),
+          method:
+            a?.method === 'store' || a?.method === 'deflate' || a?.method === 'auto'
+              ? a.method
+              : 'auto',
+          password: typeof a?.password === 'string' ? a.password.slice(0, 1024) : undefined,
+          encryption: isArchiveEncryption(a?.encryption) ? a!.encryption! : 'aes256',
+          comment: typeof a?.comment === 'string' ? a.comment.slice(0, 65535) : undefined,
+          signal: controller.signal,
+          onProgress: archiveProgress(e.sender, opId)
+        })
+      } finally {
+        if (opId) archiveOps.delete(opId)
+      }
+    }
   )
-  ipcMain.handle('fs:extract', (_e, a: { archive: string; names: string[]; dest: string }) =>
-    path.isAbsolute(a.archive) && path.isAbsolute(a.dest)
-      ? extract(a.archive, a.names ?? [], a.dest)
-      : { done: 0, errors: ['مسیر نامعتبر'] }
+  ipcMain.handle(
+    'fs:extract',
+    async (
+      e,
+      a: {
+        archive?: string
+        names?: string[]
+        dest?: string
+        password?: string
+        conflict?: string
+        subfolder?: boolean
+        symlinks?: boolean
+        opId?: string
+      }
+    ) => {
+      if (!archiveFeatureOn()) return { done: 0, skipped: 0, bytes: 0, errors: [ARCHIVE_OFF] }
+      if (!path.isAbsolute(a?.archive ?? '') || !path.isAbsolute(a?.dest ?? '')) {
+        return { done: 0, skipped: 0, bytes: 0, errors: ['مسیر نامعتبر است'] }
+      }
+      const { opId, controller } = archiveOp(String(a?.opId ?? ''))
+      try {
+        return await extract({
+          archive: a!.archive!,
+          dest: a!.dest!,
+          names: Array.isArray(a?.names) ? a.names.filter((n): n is string => typeof n === 'string') : [],
+          password: typeof a?.password === 'string' ? a.password.slice(0, 1024) : undefined,
+          conflict: conflictOf({ conflict: a?.conflict as ConflictPolicy | undefined }),
+          subfolder: a?.subfolder === true,
+          symlinks: a?.symlinks === true,
+          signal: controller.signal,
+          onProgress: archiveProgress(e.sender, opId)
+        })
+      } finally {
+        if (opId) archiveOps.delete(opId)
+      }
+    }
   )
+  ipcMain.handle('fs:archiveVerify', (_e, a: { archive?: string; password?: string; names?: string[] }) =>
+    !archiveFeatureOn()
+      ? { ok: false, checked: 0, errors: [ARCHIVE_OFF] }
+      : path.isAbsolute(a?.archive ?? '')
+      ? verifyArchive(a!.archive!, {
+          password: typeof a?.password === 'string' ? a.password.slice(0, 1024) : undefined,
+          names: Array.isArray(a?.names) ? a.names.filter((n): n is string => typeof n === 'string') : []
+        })
+      : { ok: false, checked: 0, errors: ['مسیر نامعتبر است'] }
+  )
+  ipcMain.handle('fs:archiveCancel', (_e, opId: string) => {
+    const c = archiveOps.get(String(opId ?? ''))
+    if (!c) return false
+    c.abort()
+    archiveOps.delete(String(opId))
+    return true
+  })
   ipcMain.handle('meta:set', (_e, a: { dir: string; meta: FolderMeta }) =>
     path.isAbsolute(a.dir) ? setMeta(a.dir, a.meta ?? {}) : null
   )
@@ -1873,7 +1994,9 @@ app.whenReady().then(async () => {
       case 'read_text':
         return readTextAny(needPath(args.path))
       case 'archive_list':
-        return listArchive(needAbs(args.path))
+        return archiveFeatureOn()
+          ? listArchive(needAbs(args.path))
+          : { entries: [], capped: false, error: ARCHIVE_OFF }
       case 'diff':
         return diffFiles(needAbs(args.a), needAbs(args.b))
       case 'tags': {
@@ -1960,6 +2083,8 @@ app.whenReady().then(async () => {
       }
       case 'jobs_list':
         return engine.list()
+      case 'job_files':
+        return engine.files(String(args.id ?? ''))
       case 'undo_depth':
         return engine.undoDepth()
       case 'state':
@@ -2013,8 +2138,11 @@ app.whenReady().then(async () => {
         const files = anyList(args.sources ?? args.paths)
         if (!files.length) throw new Error('paths are required')
         const opts: JobOpts = {
-          skipExisting: !!args.skipExisting,
-          newerOnly: !!args.newerOnly,
+          conflict: conflictOf({
+            conflict: args.conflict as ConflictPolicy | undefined,
+            skipExisting: !!args.skipExisting,
+            newerOnly: !!args.newerOnly
+          }),
           limitBps: Number(args.limitBps ?? 0) || 0
         }
         return engine.start(tool === 'copy' ? 'copy' : 'move', files, dest, opts)
@@ -2034,11 +2162,35 @@ app.whenReady().then(async () => {
         return { ok: true }
       }
       case 'extract':
-        return extract(needAbs(args.archive), Array.isArray(args.names) ? args.names : [], needAbs(args.dest))
-      case 'create_zip': {
-        const level = Math.min(9, Math.max(0, Number(args.level ?? 6))) as ZipLevel
-        return createZip(needAbs(args.dir), String(args.name ?? 'archive'), absList(args.sources), level)
-      }
+        if (!archiveFeatureOn()) return { done: 0, skipped: 0, bytes: 0, errors: [ARCHIVE_OFF] }
+        return extract({
+          archive: needAbs(args.archive),
+          dest: needAbs(args.dest),
+          names: Array.isArray(args.names) ? args.names.filter((n): n is string => typeof n === 'string') : [],
+          password: typeof args.password === 'string' ? args.password : undefined,
+          conflict: conflictOf({ conflict: args.conflict as ConflictPolicy | undefined }),
+          subfolder: args.subfolder === true,
+          symlinks: args.symlinks === true
+        })
+      case 'archive_verify':
+        if (!archiveFeatureOn()) return { ok: false, checked: 0, errors: [ARCHIVE_OFF] }
+        return verifyArchive(needAbs(args.archive), {
+          password: typeof args.password === 'string' ? args.password : undefined,
+          names: Array.isArray(args.names) ? args.names.filter((n): n is string => typeof n === 'string') : []
+        })
+      case 'create_zip':
+        if (!archiveFeatureOn()) return { error: ARCHIVE_OFF }
+        return createArchive({
+          dir: needAbs(args.dir),
+          name: String(args.name ?? 'archive'),
+          sources: absList(args.sources),
+          format: isArchiveFormat(args.format) ? args.format : 'zip',
+          level: Math.min(9, Math.max(0, Number(args.level ?? 6))),
+          method: args.method === 'store' || args.method === 'deflate' ? args.method : 'auto',
+          password: typeof args.password === 'string' ? args.password : undefined,
+          encryption: isArchiveEncryption(args.encryption) ? args.encryption : 'aes256',
+          comment: typeof args.comment === 'string' ? args.comment : undefined
+        })
       case 'tags_write': {
         const list = Array.isArray(args.paths)
           ? absList(args.paths)
@@ -2732,6 +2884,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('job:resume', (_e, id: string) => engine.resume(id))
   ipcMain.handle('job:cancel', (_e, id: string) => engine.cancel(id))
   ipcMain.handle('job:list', () => engine.list())
+  ipcMain.handle('job:files', (_e, id: string) => (typeof id === 'string' ? engine.files(id) : null))
   ipcMain.handle('job:clear', () => engine.clear())
   ipcMain.handle('undo:run', () => engine.undo())
   ipcMain.handle('undo:depth', () => engine.undoDepth())

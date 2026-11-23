@@ -1982,80 +1982,525 @@ input {
 }
 
 /* ---------- jobs bar ---------- */
+/* The strip is a footer of the file area, not of the window: a docked sidebar keeps its own
+   column all the way down, so the bar starts where the panes start. */
 .jobs {
-  border-top: 1px solid var(--line);
-  background: var(--panel);
-  padding: 5px 10px 6px;
+  position: relative;
+  border-top: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--chrome) 55%, var(--panel));
+  padding: 6px 10px 7px;
 }
+.jobs[data-inset-side='start'] {
+  padding-inline-start: calc(var(--jobs-inset, 0px) + 10px);
+}
+.jobs[data-inset-side='end'] {
+  padding-inline-end: calc(var(--jobs-inset, 0px) + 10px);
+}
+.jobs[data-inset-side='start']::before,
+.jobs[data-inset-side='end']::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  width: var(--jobs-inset, 0px);
+  background: color-mix(in srgb, var(--accent) var(--side-tint, 0.6%), var(--side-base, var(--rail)));
+  pointer-events: none;
+}
+.jobs[data-inset-side='start']::before {
+  inset-inline-start: 0;
+  border-inline-end: 1px solid var(--line-soft);
+}
+.jobs[data-inset-side='end']::before {
+  inset-inline-end: 0;
+  border-inline-start: 1px solid var(--line-soft);
+}
+
 .jobs-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  min-height: 26px;
   font-size: 11.5px;
   color: var(--dim);
-  padding-bottom: 3px;
+}
+.jobs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  padding: 2px 8px 2px 5px;
+  border-radius: var(--r-sm, 8px);
+  color: var(--dim);
+}
+.jobs-toggle:hover {
+  background: var(--field);
+  color: var(--text);
+}
+.jobs-toggle > svg {
+  transition: transform 0.16s ease;
+  opacity: 0.7;
+}
+.jobs.collapsed .jobs-toggle > svg {
+  transform: rotate(180deg);
+}
+.jobs-mark {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .jobs-title {
   color: var(--text);
   font-weight: 600;
+  letter-spacing: 0.1px;
 }
+.jobs-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.jobs-chip.run {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.jobs-chip.ok {
+  background: color-mix(in srgb, var(--c-code) 16%, transparent);
+  color: var(--c-code);
+}
+.jobs-chip.bad {
+  background: color-mix(in srgb, var(--c-pdf) 18%, transparent);
+  color: var(--c-pdf);
+}
+.jobs-agg {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.jobs-aggbar {
+  flex: none;
+  width: 120px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.jobs-aggbar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.jobs-aggbar.scan > i {
+  animation: jobs-scan 1.4s ease-in-out infinite;
+}
+
+.jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 5px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-inline-end: 1px;
+}
+.job {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm, 9px);
+  background: var(--field);
+  font-size: 11.5px;
+}
+.job-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.job.files-open {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line-soft));
+}
+.job:hover {
+  border-color: var(--line);
+}
+.job.running {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft));
+  background: color-mix(in srgb, var(--accent) 4%, var(--field));
+}
+.job.done,
+.job.cancelled {
+  opacity: 0.72;
+}
+.job.done:hover,
+.job.cancelled:hover {
+  opacity: 1;
+}
+/* an open log must be readable, even on a finished row */
+.job.files-open {
+  opacity: 1;
+}
+.job-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 7px;
+  background: var(--panel-3);
+  color: var(--dim);
+}
+.job.running .job-ic {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.job.paused .job-ic {
+  background: color-mix(in srgb, var(--c-archive) 18%, transparent);
+  color: var(--c-archive);
+}
+.job.done .job-ic {
+  background: color-mix(in srgb, var(--c-code) 15%, transparent);
+  color: var(--c-code);
+}
+.job.error .job-ic {
+  background: color-mix(in srgb, var(--c-pdf) 15%, transparent);
+  color: var(--c-pdf);
+}
+.job-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.job-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.job-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 500;
+}
+.job-chip {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 1.65;
+  white-space: nowrap;
+}
+.job-chip.running {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.job-chip.paused,
+.job-chip.warn {
+  background: color-mix(in srgb, var(--c-archive) 17%, transparent);
+  color: var(--c-archive);
+}
+.job-chip.done {
+  background: color-mix(in srgb, var(--c-code) 15%, transparent);
+  color: var(--c-code);
+}
+.job-chip.error,
+.job-chip.bad {
+  background: color-mix(in srgb, var(--c-pdf) 17%, transparent);
+  color: var(--c-pdf);
+}
+.job-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.job-bar {
+  position: relative;
+  flex: 1;
+  min-width: 60px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-3) 85%, transparent);
+  overflow: hidden;
+}
+.job-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 78%, var(--panel-3)),
+    var(--accent)
+  );
+  transition: width 0.2s ease;
+}
+.job.running .job-bar > i {
+  background-size: 200% 100%;
+  animation: jobs-flow 1.7s linear infinite;
+}
+.job.done .job-bar > i {
+  background: var(--c-code);
+}
+.job.cancelled .job-bar > i {
+  background: color-mix(in srgb, var(--c-archive) 70%, var(--panel-3));
+}
+.job.error .job-bar > i {
+  background: var(--c-pdf);
+}
+.job-pct {
+  flex: none;
+  min-width: 34px;
+  text-align: end;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+}
+.job-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  font-size: 10.5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.job-meta > span {
+  flex: none;
+}
+.job-meta > span + span::before {
+  content: '·';
+  margin-inline-end: 7px;
+  opacity: 0.55;
+}
+.job-kind {
+  color: color-mix(in srgb, var(--text) 72%, var(--dim));
+}
+.job-dest {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
+}
+.job-arrow {
+  opacity: 0.6;
+}
+.job-cur {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+.job-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.job-act {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border-radius: 7px;
+  color: var(--dim);
+}
+.job-act:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.job-act.danger:hover {
+  background: color-mix(in srgb, var(--c-pdf) 18%, transparent);
+  color: var(--c-pdf);
+}
+.job-act.files > svg {
+  transition: transform 0.16s ease;
+}
+.job-act.files.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.job-act.files.on > svg {
+  transform: rotate(180deg);
+}
+
+/* ---------- per-file log of one job ---------- */
+.job-files {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+  min-width: 0;
+}
+.jf-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-bottom: 5px;
+}
+.jf-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.jf-tab:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.jf-tab.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.jf-tab.zero {
+  opacity: 0.55;
+}
+.jf-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.jf-note {
+  font-size: 10px;
+  color: var(--dim);
+}
+.jf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 176px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-inline-end: 1px;
+}
+.jf-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 20px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+.jf-row:hover {
+  background: color-mix(in srgb, var(--panel-3) 70%, transparent);
+}
+.jf-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  color: var(--dim);
+}
+.jf-row.copied .jf-ic {
+  color: var(--c-code);
+}
+.jf-row.skipped .jf-ic {
+  color: var(--c-archive);
+}
+.jf-row.failed .jf-ic {
+  color: var(--c-pdf);
+}
+.jf-path {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: baseline;
+  gap: 2px;
+  white-space: nowrap;
+}
+.jf-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
+  opacity: 0.85;
+}
+.jf-name {
+  flex: none;
+  color: var(--text);
+}
+.jf-size {
+  flex: none;
+  min-width: 54px;
+  text-align: end;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.jf-why {
+  flex: none;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--c-archive);
+}
+.jf-row.copied .jf-why {
+  color: var(--dim);
+}
+.jf-row.failed .jf-why {
+  color: var(--c-pdf);
+}
+.jf-empty {
+  padding: 6px 5px;
+  color: var(--dim);
+  font-size: 11px;
+}
+@keyframes jobs-flow {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes jobs-scan {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .job.running .job-bar > i,
+  .jobs-aggbar.scan > i {
+    animation: none;
+  }
+}
+/* shared by the gallery and the preview header as well as the jobs strip */
 .pill {
   padding: 1px 7px;
   border-radius: 9px;
   background: var(--panel-3);
   font-size: 11px;
-}
-.jobs-list {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  max-height: 104px;
-  overflow-y: auto;
-}
-.job {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11.5px;
-  min-height: 22px;
-}
-.job-label {
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.job .ic {
-  color: var(--accent);
-}
-.bar {
-  flex: none;
-  width: 130px;
-  height: 5px;
-  border-radius: 4px;
-  background: var(--panel-3);
-  overflow: hidden;
-}
-.bar > i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 4px;
-  transition: width 0.2s ease;
-}
-.job.done .bar > i {
-  background: var(--c-code);
-}
-.job.error .bar > i,
-.job.cancelled .bar > i {
-  background: var(--c-archive);
-}
-.job-meta {
-  color: var(--dim);
-  font-variant-numeric: tabular-nums;
-}
-.job-err {
-  color: var(--c-archive);
 }
 
 /* ---------- rename dialog ---------- */
@@ -9637,4 +10082,119 @@ html[data-sidebar-side='right'] .body > .side-split {
   box-shadow: var(--shadow-sheet);
   font-size: 12px;
   text-align: center;
+}
+
+/* ---------- archive dialog: password, level, progress ---------- */
+.archive-dialog .arc-level {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.archive-dialog .arc-level input[type='range'] {
+  width: 180px;
+  accent-color: var(--accent);
+}
+.archive-dialog .arc-level-word {
+  min-width: 74px;
+  color: var(--dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.archive-dialog .arc-pass {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.archive-dialog .arc-pass .pref-input {
+  flex: 1;
+  min-width: 0;
+}
+.archive-dialog .arc-eye {
+  padding: 4px 7px;
+  flex: none;
+}
+.archive-dialog .arc-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.archive-dialog .arc-check input {
+  margin-top: 2px;
+  flex: none;
+}
+.archive-dialog .arc-check-hint {
+  display: block;
+  margin-top: 1px;
+}
+.archive-dialog .arc-note {
+  padding: 0 0 2px;
+}
+.archive-dialog .arc-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.archive-dialog .arc-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.archive-dialog .arc-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+.archive-dialog .arc-progress-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  font-size: 11.5px;
+}
+.archive-dialog .arc-progress-line > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.encmark {
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-archive);
+  opacity: 0.9;
+  flex: none;
+}
+.archive-dialog {
+  width: min(560px, calc(100vw - 22px));
+  max-height: calc(100vh - 22px);
+  overflow-y: auto;
+}
+@media (max-width: 620px) {
+  .archive-dialog .pref-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+  }
+  .archive-dialog .pref-control {
+    flex: initial;
+    min-width: 0;
+  }
+  .archive-dialog .pref-input,
+  .archive-dialog .pref-input.wide {
+    width: 100%;
+  }
+  .archive-dialog .arc-level {
+    flex-wrap: wrap;
+  }
+}
+.prefs-body .archive-off-hint {
+  margin: -2px 0 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
 }
