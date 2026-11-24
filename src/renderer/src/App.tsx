@@ -57,6 +57,7 @@ import { SymlinkDialog } from './SymlinkDialog'
 import { WindowButtons } from './WindowButtons'
 import { CommandBar } from './CommandBar'
 import { BookmarkBar } from './BookmarkBar'
+import { isProgramName } from '../../shared/program.ts'
 import { profileUri } from '../../shared/remote-profile.ts'
 import { pairKey } from '../../shared/sync.ts'
 import { COMMANDS, type CommandId } from './commands'
@@ -3313,6 +3314,8 @@ export default function App() {
     // the exec bit is the one «can this run?» every Unix file carries; Windows uses the extension instead
     const runnable =
       !!entry && !entry.dir && api.platform !== 'win32' && ((entry.mode ?? 0) & 0o111) !== 0
+    // a program is what «send a shortcut to the desktop» is actually for; the rows say so
+    const program = !!entry && !entry.dir && isProgramName(entry.name)
 
     const entryMenu: MenuItem[] = [
       {
@@ -3357,7 +3360,8 @@ export default function App() {
             } as MenuItem
           ]
         : []),
-      // a shortcut is one hover away rather than buried in «path and system»
+      // a shortcut is one hover away rather than buried in «path and system» — and for a program the
+      // two rows say what they make, because «in this folder» reads like a copy of the program itself
       ...(remoteHere
         ? []
         : [
@@ -3366,8 +3370,18 @@ export default function App() {
               label: t('ساخت میانبر'),
               icon: <LinkIcon />,
               children: [
-                { id: 'shortcutHere', label: t('در همین پوشه'), icon: <FolderIcon /> },
-                { id: 'shortcutDesktop', label: t('روی میزکار'), icon: <MonitorIcon /> }
+                {
+                  id: 'shortcutHere',
+                  label: program
+                    ? t('ساخت میانبر کنار برنامه')
+                    : t('در همین پوشه'),
+                  icon: <FolderIcon />
+                },
+                {
+                  id: 'shortcutDesktop',
+                  label: program ? t('ارسال میانبر به میزکار') : t('روی میزکار'),
+                  icon: <MonitorIcon />
+                }
               ]
             } as MenuItem
           ]),

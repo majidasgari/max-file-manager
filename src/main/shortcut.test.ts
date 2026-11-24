@@ -3,10 +3,12 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { createShortcuts, freeLinkName, shortcutName } from './shortcut.ts'
+import { createShortcuts, freeLinkName, linkDetails, shortcutName, type LinkDetails } from './shortcut.ts'
 
 const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), 'mfm-shortcut-'))
 const exists = (p: string) => fs.access(p).then(() => true, () => false)
+/** Windows only makes symlinks with Developer Mode on; the Unix branch is tested where it exists. */
+const noSymlinks = process.platform === 'win32' ? 'symlinks need Developer Mode on Windows' : false
 
 test('shortcutName: Explorer style on Windows, «Link to …» elsewhere', () => {
   assert.equal(shortcutName('/home/max/report.pdf', 'linux'), 'Link to report.pdf')
@@ -14,16 +16,36 @@ test('shortcutName: Explorer style on Windows, «Link to …» elsewhere', () =>
   assert.equal(shortcutName('/home/max/report.pdf', 'win32'), 'report.pdf - Shortcut.lnk')
 })
 
+test('shortcutName: a program loses the extension Windows shows anyway', () => {
+  assert.equal(shortcutName('C:\\Tools\\notepad.exe', 'win32'), 'notepad - Shortcut.lnk')
+  assert.equal(shortcutName('C:\\Tools\\regedit.COM', 'win32'), 'regedit - Shortcut.lnk')
+  // a script or installer keeps its name: the .lnk itself says nothing about what it starts
+  assert.equal(shortcutName('C:\\Tools\\setup.msi', 'win32'), 'setup.msi - Shortcut.lnk')
+  assert.equal(shortcutName('C:\\Tools\\run.cmd', 'win32'), 'run.cmd - Shortcut.lnk')
+  // the Unix branch keeps the whole name, program or not
+  assert.equal(shortcutName('/opt/Game.AppImage', 'linux'), 'Link to Game.AppImage')
+})
+
+test('linkDetails: a program starts in its own folder and carries its own icon', () => {
+  const exe = path.join('apps', 'tool.exe')
+  assert.deepEqual(linkDetails(exe), { target: exe, cwd: 'apps', args: '', icon: exe, iconIndex: 0 })
+  // a document keeps the empty icon: Windows shows its own file-type icon, exactly like Explorer
+  const doc = path.join('docs', 'report.pdf')
+  assert.deepEqual(linkDetails(doc), { target: doc, cwd: 'docs', args: '' })
+})
+
 test('freeLinkName: never reuses a name, and a broken link still counts as taken', async () => {
   const root = await tmp()
   assert.equal(await freeLinkName(root, 'Link to a.txt'), path.join(root, 'Link to a.txt'))
   await fs.writeFile(path.join(root, 'Link to a.txt'), 'x')
   assert.equal(await freeLinkName(root, 'Link to a.txt'), path.join(root, 'Link to a (2).txt'))
-  await fs.symlink(path.join(root, 'gone'), path.join(root, 'Link to a (2).txt'))
+  // a dangling symlink counts exactly like a file; Windows has no symlink without Developer Mode
+  if (noSymlinks) await fs.writeFile(path.join(root, 'Link to a (2).txt'), 'x')
+  else await fs.symlink(path.join(root, 'gone'), path.join(root, 'Link to a (2).txt'))
   assert.equal(await freeLinkName(root, 'Link to a.txt'), path.join(root, 'Link to a (3).txt'))
 })
 
-test('createShortcuts: a real link next to the file, again inside the folder never overwrites', async () => {
+test('createShortcuts: a real link next to the file, again inside the folder never overwrites', { skip: noSymlinks }, async () => {
   const root = await tmp()
   const file = path.join(root, 'notes.txt')
   await fs.writeFile(file, 'hello')
@@ -40,7 +62,7 @@ test('createShortcuts: a real link next to the file, again inside the folder nev
   assert.match(second.created[0], /\(2\)/)
 })
 
-test('createShortcuts: the desktop target lands in the given desktop folder', async () => {
+test('createShortcuts: the desktop target lands in the given desktop folder', { skip: noSymlinks }, async () => {
   const root = await tmp()
   const desk = path.join(root, 'Desktop')
   await fs.mkdir(desk)
@@ -67,23 +89,28 @@ test('createShortcuts: a missing desktop folder is reported, nothing is written'
   assert.match(r.errors[0], /desktop folder not found/)
 })
 
-test('createShortcuts: Windows writes a .lnk through the injected writer', async () => {
+test('createShortcuts: Windows writes a program .lnk with the details Explorer fills in', async () => {
   const root = await tmp()
   const file = path.join(root, 'tool.exe')
   await fs.writeFile(file, 'MZ')
-  const calls: { link: string; target: string }[] = []
+  const calls: { link: string; details: LinkDetails }[] = []
   const r = await createShortcuts([file], 'here', {
     platform: 'win32',
     desktopDir: '',
-    writeLink: async (link, target) => {
-      calls.push({ link, target })
+    writeLink: async (link, details) => {
+      calls.push({ link, details })
       await fs.writeFile(link, 'lnk')
       return true
     }
   })
   assert.equal(r.done, 1)
-  assert.equal(path.basename(r.created[0]), 'tool.exe - Shortcut.lnk')
-  assert.deepEqual(calls, [{ link: r.created[0], target: file }])
+  assert.deepEqual(r.errors, [])
+  assert.equal(path.basename(r.created[0]), 'tool - Shortcut.lnk')
+  assert.deepEqual(calls, [{ link: r.created[0], details: linkDetails(file) }])
+  // the program is the target, its own folder is «Start in», its own exe is the icon
+  assert.equal(calls[0].details.target, file)
+  assert.equal(calls[0].details.cwd, root)
+  assert.equal(calls[0].details.icon, file)
 })
 
 test('createShortcuts: a refused writer or a missing target is an error, not a crash', async () => {
@@ -97,6 +124,8 @@ test('createShortcuts: a refused writer or a missing target is an error, not a c
   })
   assert.equal(refused.done, 0)
   assert.match(refused.errors[0], /refused/)
+  // a program usually lives in Program Files, so the refusal has to point at the desktop
+  assert.match(refused.errors[0], /desktop/)
 
   const missing = await createShortcuts([path.join(root, 'nope')], 'here', {
     platform: 'linux',

@@ -71,6 +71,8 @@ const EN: Record<string, string> = {
   'ساخت میانبر': 'Create shortcut',
   'در همین پوشه': 'In this folder',
   'روی میزکار': 'On the desktop',
+  'ساخت میانبر کنار برنامه': 'Create a shortcut beside the program',
+  'ارسال میانبر به میزکار': 'Send a shortcut to the desktop',
   '{n} میانبر ساخته شد': '{n} shortcut(s) created',
   'میانبر ساخته نشد — {error}': 'Shortcut failed — {error}',
   'تکرار خودکار': 'Repeat automatically',

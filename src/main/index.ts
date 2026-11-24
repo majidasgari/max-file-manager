@@ -2184,10 +2184,7 @@ app.whenReady().then(async () => {
         if (targets.some(isRemotePath)) throw new Error('shortcuts are local only')
         return createShortcuts(targets, args.where === 'desktop' ? 'desktop' : 'here', {
           desktopDir: app.getPath('desktop'),
-          writeLink: (link, target) =>
-            Promise.resolve(
-              shell.writeShortcutLink(link, 'create', { target, cwd: path.dirname(target) })
-            )
+          writeLink: (link, details) => Promise.resolve(shell.writeShortcutLink(link, 'create', details))
         })
       }
       case 'chmod': {
@@ -2930,8 +2927,7 @@ app.whenReady().then(async () => {
     }
     return createShortcuts(targets, a?.where === 'desktop' ? 'desktop' : 'here', {
       desktopDir: app.getPath('desktop'),
-      writeLink: (link, target) =>
-        Promise.resolve(shell.writeShortcutLink(link, 'create', { target, cwd: path.dirname(target) }))
+      writeLink: (link, details) => Promise.resolve(shell.writeShortcutLink(link, 'create', details))
     })
   })
   ipcMain.handle('fs:renameMany', (_e, pairs: { from: string; to: string }[]) =>

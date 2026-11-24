@@ -11,6 +11,7 @@ A two-pane desktop file manager for Linux (KDE first) and Windows: real tabs, a 
 | **Two panes, real tabs** | pinned tabs, drag to reorder, rename, lock (a locked tab opens a new one instead of navigating), per-tab colour, folder icon, tab menu, `Ctrl+T`/`Ctrl+W`, per-pane back/forward history |
 | **Layout is yours** | tabs on top or at the bottom, tabs as a vertical column in the sidebar, sidebar left or right, single or dual pane, four levels of file-area tint — every default is what the app did before the option existed |
 | **Nothing is overwritten** | an existing name becomes `name (2).ext`; delete goes to the OS trash unless you hold `Shift` |
+| **Shortcuts the system owns** | right click → «create shortcut» here or on the desktop: a real `.lnk` on Windows with the target, «Start in» and icon filled in like Explorer — a program loses its extension, a document keeps its file-type icon — and a symlink everywhere else |
 | **Transfers never block the UI** | a queue with byte progress, speed, pause/resume, cancel, per-item errors and one undo step |
 | **Local, remote and cloud in one place** | FTP/FTPS/SFTP/S3 tabs, and Google Drive, Dropbox, OneDrive and WebDAV folders kept in step by a three-way comparison ([docs/CLOUD.md](docs/CLOUD.md), [docs/REMOTE.md](docs/REMOTE.md)) |
 | **One command registry** | every action is a command (`commands.ts`); the toolbar, the shortcut editor and the status bar read the same list, and every key is rebindable |

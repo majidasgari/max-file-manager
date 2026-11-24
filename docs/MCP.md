@@ -114,7 +114,7 @@ the UI uses (`name, path, dir, size, mtime, ext, mode, uid, gid, nlink, w, h`).
 | `trash` | `paths[]` | system trash |
 | `delete` | `paths[]`, `confirm: true` | permanent, refuses without confirm |
 | `symlink` | `target`, `link` | |
-| `shortcut` | `paths[]`, `where?` | `where`: `here` (same folder, default) or `desktop`; Windows writes a `.lnk`, Linux/macOS a symlink; never overwrites |
+| `shortcut` | `paths[]`, `where?` | `where`: `here` (same folder, default) or `desktop`; Windows writes a `.lnk` (a program gets Explorer's own shape: `notepad - Shortcut.lnk`, its folder as «Start in», the program as the icon), Linux/macOS a symlink; never overwrites |
 | `chmod` | `path`, `mode` | `0..0o7777` |
 | `extract` | `archive`, `dest`, `names[]?`, `password?`, `conflict?`, `subfolder?`, `symlinks?` | conflict: `keep` (default), `overwrite`, `skip`, `newer` |
 | `create_zip` | `dir`, `name`, `sources[]`, `format?`, `level?`, `method?`, `password?`, `encryption?`, `comment?` | streamed; zip levels 0–9, AES-256/192/128 or ZipCrypto |
