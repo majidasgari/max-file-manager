@@ -493,7 +493,9 @@ test('terminalDir: a folder is itself, a file is its folder, an archive means th
   assert.equal(terminalDir('/data/deep/x.log', false, null, '/home/me'), '/data/deep')
   // inside an archive the entry path is not a real directory
   assert.equal(terminalDir('/data/set.zip/inner/a.txt', false, '/data/set.zip', '/data/set.zip'), '/data')
-  assert.equal(terminalDir(null, false, null, '/home/me'), '/home')
+  // right-click on the empty area (no target) is the tab's own folder, never its parent
+  assert.equal(terminalDir(null, false, null, '/home/me'), '/home/me')
+  assert.equal(terminalDir(null, false, '/data/set.zip', '/data/set.zip'), '/data')
 })
 
 

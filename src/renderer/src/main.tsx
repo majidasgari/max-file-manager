@@ -7,6 +7,11 @@ import { StandaloneEditor, StandaloneGallery } from './Standalone'
 import { StandaloneMusic } from './StandaloneMusic'
 import { StandaloneVideo } from './StandaloneVideo'
 import './style.css'
+import { refreshUserFonts, registerBundledFonts } from './fonts'
+
+// Bundled faces are declared before the first paint; imported ones arrive a tick later.
+registerBundledFonts()
+void refreshUserFonts()
 
 const params = new URLSearchParams(window.location.search)
 const portal = params.get('portal') === '1'

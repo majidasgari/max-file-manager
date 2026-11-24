@@ -114,6 +114,7 @@ the UI uses (`name, path, dir, size, mtime, ext, mode, uid, gid, nlink, w, h`).
 | `trash` | `paths[]` | system trash |
 | `delete` | `paths[]`, `confirm: true` | permanent, refuses without confirm |
 | `symlink` | `target`, `link` | |
+| `shortcut` | `paths[]`, `where?` | `where`: `here` (same folder, default) or `desktop`; Windows writes a `.lnk`, Linux/macOS a symlink; never overwrites |
 | `chmod` | `path`, `mode` | `0..0o7777` |
 | `extract` | `archive`, `dest`, `names[]?`, `password?`, `conflict?`, `subfolder?`, `symlinks?` | conflict: `keep` (default), `overwrite`, `skip`, `newer` |
 | `create_zip` | `dir`, `name`, `sources[]`, `format?`, `level?`, `method?`, `password?`, `encryption?`, `comment?` | streamed; zip levels 0–9, AES-256/192/128 or ZipCrypto |
@@ -150,6 +151,7 @@ the UI uses (`name, path, dir, size, mtime, ext, mode, uid, gid, nlink, w, h`).
 | `search_index` | `roots[]`, `exclude[]?`, `wait?` | build the index; `wait:false` starts it and returns at once |
 | `search_clear` | – | wipe the index; **settings are kept** |
 | `prefs_set` | `patch` | validated through `mergePrefs`, written to SQLite at once |
+| `fonts_list` | – | bundled UI families, imported font files and the current `fontFamily` |
 | `settings_export` | `path?` | preferences as one JSON file (dialog when no path) |
 | `settings_import` | `path?`, `apply?` | load a JSON file and apply its preferences |
 | `open` | `path` | default application |
@@ -213,6 +215,12 @@ The music player adds no tool of its own either: it is renderer-only state with 
 element, its playlist is saved in prefs (`musicPlaylist`) and it must stay off unless the user turns
 it on. `command` with `id: "music"` opens or closes the panel through the same `RUN` table the
 `Ctrl+M` shortcut uses, and `prefs_set` with `musicPlayer` switches the module on or off.
+
+Fonts: `fonts_list` reports `bundled` (renderer assets, from `src/shared/fonts.ts`), `imported`
+(files copied into `userData/fonts`) and `current`. Choosing one is `prefs_set` with
+`{ "patch": { "fontFamily": "Inter" } }`; importing needs the native picker, so it stays a UI
+action and has no MCP tool — an agent can drop a ttf/otf/woff/woff2 into `userData/fonts`
+instead, and it is picked up on the next start.
 
 ## Storage
 

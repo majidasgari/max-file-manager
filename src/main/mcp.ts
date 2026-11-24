@@ -94,6 +94,7 @@ const TOOLS: McpTool[] = [
   { name: 'trash', description: 'send to the system trash', read: false, input: { paths: 'string[]' } },
   { name: 'delete', description: 'permanent delete, needs confirm:true', read: false, input: { paths: 'string[]', confirm: 'boolean' } },
   { name: 'symlink', description: 'create a symbolic link', read: false, input: { target: 'string', link: 'string' } },
+  { name: 'shortcut', description: 'create a shortcut in the same folder or on the desktop (.lnk on Windows, symlink elsewhere)', read: false, input: { paths: 'string[]', where: 'string?' } },
   { name: 'chmod', description: 'change permission bits of a path', read: false, input: { path: 'string', mode: 'number' } },
   { name: 'extract', description: 'extract a zip/tar archive with optional password and conflict policy', read: false, input: { archive: 'string', dest: 'string', names: 'string[]?', password: 'string?', conflict: 'string?', subfolder: 'boolean?', symlinks: 'boolean?' } },
   { name: 'create_zip', description: 'create a zip/tar archive; zip supports levels, AES/ZipCrypto passwords and comments', read: false, input: { dir: 'string', name: 'string', sources: 'string[]', format: 'string?', level: 'number?', method: 'string?', password: 'string?', encryption: 'string?', comment: 'string?' } },
@@ -142,6 +143,7 @@ const TOOLS: McpTool[] = [
   { name: 'search_index', description: 'index folders; wait:false returns at once, then poll search_status', read: false, input: { roots: 'string[]', exclude: 'string[]?', wait: 'boolean?' } },
   { name: 'search_clear', description: 'empty the search index (settings are kept)', read: false, input: {} },
   { name: 'prefs_set', description: 'change preferences; everything is written to SQLite', read: false, input: { patch: 'object' } },
+  { name: 'fonts_list', description: 'bundled UI fonts, imported font files and the current interface font', read: true, input: {} },
   { name: 'settings_export', description: 'write every preference to a JSON file', read: false, input: { path: 'string?' } },
   { name: 'settings_import', description: 'load preferences from a JSON file and apply them', read: false, input: { path: 'string?', apply: 'boolean?' } },
 

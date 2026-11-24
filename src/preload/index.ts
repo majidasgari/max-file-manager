@@ -74,6 +74,13 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('app:runCustomCommand', { command, path }),
   openTerminal: (dir: string, shell?: string) => ipcRenderer.invoke('app:terminal', dir, shell),
   terminalOptions: () => ipcRenderer.invoke('app:terminalOptions'),
+  // bundled fonts are renderer assets; these four only carry fonts the person imported
+  fonts: {
+    list: () => ipcRenderer.invoke('fonts:list'),
+    read: (id: string) => ipcRenderer.invoke('fonts:read', String(id)),
+    import: () => ipcRenderer.invoke('fonts:import'),
+    remove: (id: string) => ipcRenderer.invoke('fonts:remove', String(id))
+  },
   reveal: (path: string) => ipcRenderer.invoke('app:reveal', path),
   isDefaultFileManager: () => ipcRenderer.invoke('desktop:isDefaultFileManager'),
   setDefaultFileManager: () => ipcRenderer.invoke('desktop:setDefaultFileManager'),
@@ -251,6 +258,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('fs:createFile', dir, name, content),
   symlink: (target: string, linkPath: string) =>
     ipcRenderer.invoke('fs:symlink', target, linkPath),
+  shortcut: (targets: string[], where: 'here' | 'desktop') =>
+    ipcRenderer.invoke('fs:shortcut', { targets, where }),
   renameMany: (pairs: { from: string; to: string }[]) => ipcRenderer.invoke('fs:renameMany', pairs),
   open: (p: string) => ipcRenderer.invoke('shell:open', p),
   run: (p: string) => ipcRenderer.invoke('shell:run', p),

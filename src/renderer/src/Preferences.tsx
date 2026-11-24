@@ -20,6 +20,8 @@ import { CloudPage } from './CloudPage'
 import { COMMANDS, COMMAND_BY_ID, DEFAULT_SHORTCUTS, GROUP_ORDER, groupLabelOf, labelOf, type CommandGroup } from './commands'
 import { accelFromEvent, findConflicts, formatAccel } from './keys'
 import { COLOR_THEMES } from './themes'
+import { BUNDLED_FONTS } from '../../shared/fonts.ts'
+import { getUserFonts, importUserFonts, refreshUserFonts, removeUserFont, type UserFont } from './fonts'
 
 const FONT_SUGGESTIONS = [
   'Vazirmatn',
@@ -140,6 +142,26 @@ export function Preferences({
   const [cmdPattern, setCmdPattern] = useState('')
   const [cmdType, setCmdType] = useState<'ext' | 'folder'>('ext')
   const [cmdLine, setCmdLine] = useState('')
+  const [userFonts, setUserFonts] = useState<UserFont[]>(getUserFonts())
+  // hovering a chip previews it in the sample below without touching the stored preference
+  const [hoverFont, setHoverFont] = useState('')
+
+  // imported fonts live in userData; the list is refreshed here because a viewer window may add one
+  useEffect(() => {
+    void refreshUserFonts().then(setUserFonts)
+  }, [])
+
+  const addFonts = async () => {
+    const added = await importUserFonts()
+    setUserFonts(getUserFonts())
+    if (added[0]) onChange({ fontFamily: added[0].family })
+  }
+
+  const dropFont = async (f: UserFont) => {
+    if (!(await removeUserFont(f.id))) return
+    setUserFonts(getUserFonts())
+    if (prefs.fontFamily.trim() === f.family) onChange({ fontFamily: '' })
+  }
 
   const handleSaveCmd = () => {
     const label = cmdLabel.trim()
@@ -453,7 +475,7 @@ export function Preferences({
               <div className="pref-group">{t('فونت رابط')}</div>
               {row(
                 t('فونت رابط کاربری'),
-                t('نام فونت نصب‌شده؛ خالی = وزیرمتن'),
+                t('نام هر فونت نصب‌شده، یا یکی از فونت‌های زیر'),
                 <div className="font-row">
                   <input
                     className="pref-input"
@@ -470,11 +492,86 @@ export function Preferences({
                     {FONT_SUGGESTIONS.map((f) => (
                       <option key={f} value={f} />
                     ))}
+                    {userFonts.map((f) => (
+                      <option key={f.id} value={f.family} />
+                    ))}
                   </datalist>
                 </div>
               )}
-              <div className="font-preview" dir="auto" style={{ fontFamily: fontStack(prefs.fontFamily) }}>
-                {t('نمونهٔ متن')} · Aa 0123
+              <div className="font-grid">
+                {BUNDLED_FONTS.map((f) => (
+                  <button
+                    key={f.id}
+                    className={'font-chip' + ((prefs.fontFamily.trim() || 'Vazirmatn') === f.family ? ' on' : '')}
+                    style={{ fontFamily: `${fontStack(f.family)}` }}
+                    onClick={() => onChange({ fontFamily: f.family })}
+                    onMouseEnter={() => setHoverFont(f.family)}
+                    onMouseLeave={() => setHoverFont('')}
+                    onFocus={() => setHoverFont(f.family)}
+                    onBlur={() => setHoverFont('')}
+                  >
+                    <span className="font-chip-name" dir="ltr">
+                      {f.family}
+                    </span>
+                    <span className="font-chip-sample" dir="auto">
+                      Aa 123 · آب
+                    </span>
+                    <span className="font-chip-note">{t(f.note)}</span>
+                  </button>
+                ))}
+                {userFonts.map((f) => (
+                  <div
+                    key={f.id}
+                    className={'font-chip mine' + (prefs.fontFamily.trim() === f.family ? ' on' : '')}
+                    style={{ fontFamily: fontStack(f.family) }}
+                    onMouseEnter={() => setHoverFont(f.family)}
+                    onMouseLeave={() => setHoverFont('')}
+                  >
+                    <button
+                      className="font-chip-pick"
+                      onClick={() => onChange({ fontFamily: f.family })}
+                      onFocus={() => setHoverFont(f.family)}
+                      onBlur={() => setHoverFont('')}
+                      title={f.id}
+                    >
+                      <span className="font-chip-name" dir="ltr">
+                        {f.family}
+                      </span>
+                      <span className="font-chip-sample" dir="auto">
+                        Aa 123 · آب
+                      </span>
+                      <span className="font-chip-note" dir="ltr">
+                        {fa(Math.round(f.size / 1024))} KB
+                      </span>
+                    </button>
+                    <button className="font-chip-del" onClick={() => dropFont(f)} title={t('حذف فونت')}>
+                      <XIcon />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  className="font-chip add"
+                  onClick={addFonts}
+                  onMouseEnter={() => setHoverFont('')}
+                  title={t('ttf، otf، woff یا woff2')}
+                >
+                  <span className="font-chip-name">+ {t('افزودن فونت')}</span>
+                  <span className="font-chip-note">{t('از فایل')}</span>
+                </button>
+              </div>
+              <div className="font-sample" dir="auto" style={{ fontFamily: fontStack(hoverFont || prefs.fontFamily) }}>
+                <div className="font-sample-head">
+                  <span className="font-sample-name" dir="ltr">
+                    {hoverFont || prefs.fontFamily.trim() || 'Vazirmatn'}
+                  </span>
+                  <span className="font-sample-tag">{hoverFont ? t('پیش‌نمایش') : t('فونت فعلی')}</span>
+                </div>
+                <div className="font-sample-lg">مدیر فایل مکس · Max File Manager</div>
+                <div className="font-sample-body">پوشه‌ها، پرونده‌ها، برچسب‌ها · ۱۴۰۵/۰۹/۰۳ · Aa 0123</div>
+                <div className="font-sample-bold">تأیید · لغو · حذف — OK Cancel Delete</div>
+                <div className="font-sample-path" dir="ltr">
+                  /home/maxv/Documents/report.pdf
+                </div>
               </div>
               <div className="pref-group">{t('کادر پنجره')}</div>
               {row(

@@ -4642,12 +4642,14 @@ html[data-rounded='0'] .app {
 }
 
 /* ---------- sync + diff dialogs ---------- */
-.sync-dialog,
-.diff-dialog {
+/* shortcut: compound selectors, .dialog is re-declared at 380px further down the sheet */
+.dialog.sync-dialog,
+.dialog.diff-dialog {
   width: min(860px, 92vw);
   max-height: 84vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .sync-rsync-opts {
   flex-basis: 100%;
@@ -4720,6 +4722,7 @@ html[data-rounded='0'] .app {
   font-size: 10.5px;
 }
 .sync-enc-note {
+  flex: none;
   margin-top: 6px;
 }
 .sync-versions {
@@ -4757,6 +4760,7 @@ html[data-rounded='0'] .app {
   color: var(--dim);
 }
 .sync-summary {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4822,13 +4826,20 @@ html[data-rounded='0'] .app {
 }
 
 /* ---------- sync workspace: the full-window compare/run surface ---------- */
-.sync-workspace {
-  width: min(1180px, 96vw);
-  height: min(860px, 92vh);
+/* shortcut: compound selector, otherwise the later .dialog { width: 380px } wins on source order */
+.dialog.sync-workspace {
+  width: clamp(720px, 94vw, 1180px);
+  max-width: 94vw;
+  height: min(880px, 92vh);
+  /* the rows list gets the leftover space, so the sheet may not grow past the viewport */
+  max-height: 92vh;
+  gap: 10px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .sync-head {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4838,9 +4849,12 @@ html[data-rounded='0'] .app {
   font-size: 13px;
 }
 .sync-tabs {
+  flex: none;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 2px;
+  row-gap: 0;
   border-bottom: 1px solid var(--line);
   margin-top: 6px;
 }
@@ -4853,17 +4867,20 @@ html[data-rounded='0'] .app {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .sync-tab.on {
   color: var(--text);
   border-bottom-color: var(--accent);
 }
 .sync-body {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 300px;
+  /* a floor keeps the status select from being squeezed out of a short window */
+  min-height: 140px;
   display: flex;
   flex-direction: column;
   padding-top: 6px;
+  overflow: hidden;
 }
 .sync-rows {
   flex: 1;
@@ -4900,6 +4917,13 @@ html[data-rounded='0'] .app {
   font-size: 10.5px;
   color: var(--dim);
   border-bottom: 1px solid var(--line);
+}
+/* heads sit on the same edge as their column's data, not on the reading edge */
+.sync-list-head .sync-side {
+  text-align: end;
+}
+.sync-list-head .sync-head-state {
+  text-align: center;
 }
 .sync-head-state {
   flex: 0 0 86px;
@@ -4979,7 +5003,19 @@ html[data-rounded='0'] .app {
   font-weight: 500;
 }
 /* ---------- sync workspace: pair header, per-side settings, ignore tab ---------- */
+.sync-config {
+  /* shrinkable on purpose: in a short window the settings scroll here so the compare table and
+     the footer below keep their floor instead of falling under the sheet's clipped edge */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-inline-end: 2px;
+}
 .sync-pair {
+  flex: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 10px;
@@ -5078,51 +5114,67 @@ html[data-rounded='0'] .app {
 .mode-label svg {
   flex: none;
 }
-.sync-sides {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
-  gap: 12px;
-  padding: 2px 0 10px;
-}
-.sync-sides-line {
-  width: 1px;
-  background: var(--line);
-}
-.sync-side-panel {
-  min-width: 0;
+.sync-run {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  flex: none;
+  gap: 8px;
+  margin-inline-start: auto;
 }
-.sync-side-panel:last-child {
-  align-items: flex-end;
-  text-align: end;
+/* below ~900px the sheet is 94vw: the path column needs the width the two size columns held */
+@media (max-width: 900px) {
+  .dialog.sync-workspace {
+    padding: 14px;
+    gap: 10px;
+  }
+  .sync-workspace .sync-row .chip,
+  .sync-head-state {
+    flex-basis: 74px;
+  }
+  .sync-side {
+    flex-basis: 58px;
+  }
 }
-.sync-side-panel:last-child .sync-side-enc-title,
-.sync-side-panel:last-child .sync-enc-row {
+/* a short window (the sheet is 92vh) must still leave room for the compare rows: tighten the
+   header block instead of letting the table fall under the window edge */
+@media (max-height: 700px) {
+  .dialog.sync-workspace {
+    padding: 12px;
+    height: 96vh;
+    max-height: 96vh;
+  }
+  .sync-pair {
+    padding: 0 0 6px;
+  }
+  .sync-side-card {
+    padding: 5px 8px;
+    gap: 2px;
+  }
+  .sync-common {
+    padding: 0 0 4px;
+  }
+  .sync-summary {
+    margin-bottom: 2px;
+  }
+  /* the header's × already closes the sheet; a second Close row only steals a results row */
+  .sync-workspace .dialog-actions {
+    display: none;
+  }
+}
+.sync-side-card .sync-side-enc {
+  width: 100%;
+  padding-top: 2px;
+}
+.sync-side-card.right .sync-side-enc {
   justify-content: flex-end;
-}
-.sync-side-head {
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 11.5px;
-}
-.sync-side-head b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .sync-side-enc {
   width: 100%;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
 }
 .sync-side-enc-title {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -5130,6 +5182,9 @@ html[data-rounded='0'] .app {
   font-size: 10.5px;
 }
 .sync-side-enc .sync-enc-row {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
   margin-top: 0;
 }
 .sync-side-enc select {
@@ -5149,6 +5204,7 @@ html[data-rounded='0'] .app {
   margin-top: 2px;
 }
 .sync-common {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -5387,12 +5443,10 @@ html[data-rounded='0'] .app {
   opacity: 0.55;
 }
 
-.sync-plan {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  font-size: 11.5px;
+.sync-plan-chip {
+  flex: none;
+  margin-inline-start: 8px;
+  font-size: 10.5px;
 }
 .sync-confirm {
   display: flex;
@@ -5580,6 +5634,7 @@ html[data-rounded='0'] .app {
 .font-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   width: 100%;
 }
@@ -5588,13 +5643,134 @@ html[data-rounded='0'] .app {
   width: 240px;
   min-width: 180px;
 }
-.font-preview {
-  margin: -2px 10px 10px;
-  padding: 8px 10px;
-  border: 1px dashed var(--line);
-  border-radius: 7px;
+/* The specimen under the chips: hover a chip and this block switches to that face. */
+.font-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 10px 12px;
+  padding: 9px 12px 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.font-sample-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.font-sample-name {
+  font-size: 11px;
   color: var(--dim);
+}
+.font-sample-tag {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 10px;
+  color: var(--dim);
+}
+.font-sample-lg {
+  font-size: 19px;
+  line-height: 1.5;
+}
+.font-sample-body {
   font-size: 13px;
+}
+.font-sample-bold {
+  font-size: 13px;
+  font-weight: 700;
+}
+.font-sample-path {
+  font-size: 11.5px;
+  color: var(--dim);
+}
+/* Every chip is drawn in the face it offers, so a row of them is the picker. */
+.font-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+.font-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 128px;
+  padding: 7px 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.font-chip:hover {
+  border-color: var(--accent);
+}
+.font-chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.font-chip.mine {
+  flex-direction: row;
+  align-items: stretch;
+  padding: 0;
+}
+.font-chip-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 11px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.font-chip.add {
+  justify-content: center;
+  min-width: 112px;
+  background: none;
+  border-style: dashed;
+  color: var(--dim);
+}
+.font-chip.add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.font-chip-name {
+  font-size: 13px;
+}
+.font-chip-sample {
+  font-size: 15px;
+}
+.font-chip-note {
+  font-size: 10.5px;
+  color: var(--dim);
+}
+.font-chip-del {
+  display: grid;
+  place-items: center;
+  padding: 0 7px;
+  background: none;
+  border: 0;
+  border-inline-start: 1px solid var(--line);
+  color: var(--dim);
+  cursor: pointer;
+}
+.font-chip-del svg {
+  width: 13px;
+  height: 13px;
+}
+.font-chip-del:hover {
+  color: var(--c-pdf);
 }
 .pref-input.wide {
   width: 220px;
@@ -6698,9 +6874,11 @@ html[data-rounded='0'] .app {
 }
 
 /* ---------- folder contents charts ---------- */
-.bd-dialog {
-  width: 880px;
-  max-width: 94vw;
+/* `.dialog` is re-declared at 380px further down the sheet, so the width must be chained here:
+   a bare `.bd-dialog` has the same specificity and loses. 80vw keeps the three charts in one row. */
+.dialog.bd-dialog {
+  width: 80vw;
+  max-width: 80vw;
   max-height: 88vh;
   gap: 10px;
 }

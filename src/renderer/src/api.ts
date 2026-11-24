@@ -613,6 +613,15 @@ export type Api = {
   openTerminal(dir: string, shell?: string): Promise<{ ok: true } | { error: string }>
   /** terminal programs this machine can start (Windows shells, installed emulators) */
   terminalOptions(): Promise<{ auto: string; options: { id: string; label: string; detail: string }[] }>
+  /** fonts the person imported; bundled families are renderer assets and need no IPC */
+  fonts: {
+    list(): Promise<{ id: string; family: string; size: number }[]>
+    /** raw font bytes, registered with `FontFace` in the renderer (never a URL) */
+    read(id: string): Promise<Uint8Array<ArrayBuffer> | null>
+    /** native picker; returns what was actually copied into the app folder */
+    import(): Promise<{ id: string; family: string; size: number }[]>
+    remove(id: string): Promise<boolean>
+  }
   reveal(path: string): Promise<{ ok: true } | { error: string }>
   isDefaultFileManager(): Promise<boolean>
   setDefaultFileManager(): Promise<{ ok: boolean; error?: string }>
@@ -829,6 +838,11 @@ export type Api = {
     target: string,
     linkPath: string
   ): Promise<{ ok: true; path: string } | { ok: false; error: string }>
+  /** .lnk on Windows, a symlink elsewhere; `where` picks the item's own folder or the desktop */
+  shortcut(
+    targets: string[],
+    where: 'here' | 'desktop'
+  ): Promise<{ done: number; created: string[]; errors: string[] }>
   renameMany(pairs: { from: string; to: string }[]): Promise<Result>
   open(p: string): Promise<{ ok: true } | { error: string }>
   /** run an executable file as itself (the exec bit is the permission), whatever its type */

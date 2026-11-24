@@ -67,6 +67,7 @@ import {
   type FolderMeta
 } from './meta.ts'
 import { htmlToPdf, readTextFile, writeTextFile } from './editor.ts'
+import { importUserFont, listUserFonts, readUserFont, removeUserFont } from './fonts.ts'
 import { stopWinETakeover, winETakeover } from './wine-hook.ts'
 import { fitWindow } from './window-bounds.ts'
 import {
@@ -148,6 +149,7 @@ import { convertImages, type ConvertOpts } from './convert.ts'
 import { exportListing, type ExportRow } from './export.ts'
 import { createEngine, type JobKind, type JobOpts } from './jobs.ts'
 import { createSymlink, freeName, remove } from './ops.ts'
+import { createShortcuts } from './shortcut.ts'
 import { findDupes, walk, type WalkOpts } from './search.ts'
 import { breakdown, type BreakdownMode } from './breakdown.ts'
 import { listDrives, listVolumes, mountDrive, unmountDrive } from './drives.ts'
@@ -179,6 +181,7 @@ import { closeFtpClients } from './remote-ftp.ts'
 import type { DirRef, Entry } from './types.ts'
 import type { ProfileDraft } from '../shared/remote-profile.ts'
 import { conflictOf, type ConflictPolicy } from '../shared/conflict.ts'
+import { BUNDLED_FONTS } from '../shared/fonts.ts'
 import { PortalServer, type PortalRequestData } from './portal.ts'
 import { installPortal, portalInstalled, uninstallPortal } from './portal-install.ts'
 
@@ -1758,6 +1761,26 @@ app.whenReady().then(async () => {
     auto: autoTerminal(),
     options: listTerminals()
   }))
+  // ── user fonts: copies live in userData, never in the folder being browsed ─────────────────
+  const fontsDir = () => path.join(app.getPath('userData'), 'fonts')
+  ipcMain.handle('fonts:list', () => listUserFonts(fontsDir()))
+  ipcMain.handle('fonts:read', (_e, id: string) => readUserFont(fontsDir(), id))
+  ipcMain.handle('fonts:remove', (_e, id: string) => removeUserFont(fontsDir(), id))
+  ipcMain.handle('fonts:import', async () => {
+    const opts = {
+      title: 'Import fonts',
+      filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'woff', 'woff2'] }],
+      properties: ['openFile' as const, 'multiSelections' as const]
+    }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (r.canceled) return []
+    const added = []
+    for (const file of r.filePaths) {
+      const f = await importUserFont(fontsDir(), file)
+      if (!('error' in f)) added.push(f)
+    }
+    return added
+  })
   ipcMain.handle('app:reveal', async (_e, p: string) => {
     if (!isRemotePath(p)) return revealFile(p ?? '')
     try {
@@ -2155,6 +2178,18 @@ app.whenReady().then(async () => {
       }
       case 'symlink':
         return createSymlink(needAbs(args.target), needAbs(args.link))
+      case 'shortcut': {
+        const targets = anyList(args.paths ?? args.targets)
+        if (!targets.length) throw new Error('paths are required')
+        if (targets.some(isRemotePath)) throw new Error('shortcuts are local only')
+        return createShortcuts(targets, args.where === 'desktop' ? 'desktop' : 'here', {
+          desktopDir: app.getPath('desktop'),
+          writeLink: (link, target) =>
+            Promise.resolve(
+              shell.writeShortcutLink(link, 'create', { target, cwd: path.dirname(target) })
+            )
+        })
+      }
       case 'chmod': {
         const mode = Number(args.mode)
         if (!Number.isInteger(mode) || mode < 0 || mode > 0o7777) throw new Error('mode must be 0..0o7777')
@@ -2301,6 +2336,16 @@ app.whenReady().then(async () => {
         const prefs = { ...(st.prefs ?? {}), ...patch }
         writeStore('state', { ...st, prefs })
         return ui({ prefs })
+      }
+      case 'fonts_list': {
+        const st = (await readState()) ?? {}
+        const prefs = (st.prefs ?? {}) as Record<string, unknown>
+        return {
+          // bundled families are renderer assets; the metadata is shared with the settings page
+          bundled: BUNDLED_FONTS,
+          imported: await listUserFonts(path.join(app.getPath('userData'), 'fonts')),
+          current: typeof prefs.fontFamily === 'string' ? prefs.fontFamily : ''
+        }
       }
       case 'open':
         return openWithDefault(await localForMcp(needPath(args.path)))
@@ -2871,6 +2916,23 @@ app.whenReady().then(async () => {
     return typeof target === 'string' && typeof linkPath === 'string'
       ? createSymlink(target, linkPath)
       : { ok: false, error: 'invalid paths' }
+  })
+  /**
+   * One shortcut for the whole app (menu, MCP): a `.lnk` on Windows, a symlink everywhere else.
+   * The desktop path comes from Electron so a redirected/OneDrive desktop is honoured.
+   */
+  ipcMain.handle('fs:shortcut', (_e, a: { targets?: string[]; where?: string }) => {
+    const targets = (Array.isArray(a?.targets) ? a.targets : []).filter(
+      (p): p is string => typeof p === 'string' && p !== ''
+    )
+    if (targets.some(isRemotePath)) {
+      return { done: 0, created: [], errors: ['shortcuts are local only'] }
+    }
+    return createShortcuts(targets, a?.where === 'desktop' ? 'desktop' : 'here', {
+      desktopDir: app.getPath('desktop'),
+      writeLink: (link, target) =>
+        Promise.resolve(shell.writeShortcutLink(link, 'create', { target, cwd: path.dirname(target) }))
+    })
   })
   ipcMain.handle('fs:renameMany', (_e, pairs: { from: string; to: string }[]) =>
     engine.renameMany(pairs ?? [])

@@ -199,6 +199,14 @@ export const LinkIcon = ({ size = 15 }: { size?: number }) => (
   </S>
 )
 
+/** A desktop screen: the whole monitor, used by «shortcut on the desktop». */
+export const MonitorIcon = ({ size = 15 }: { size?: number }) => (
+  <S size={size}>
+    <rect x="2.5" y="4" width="19" height="12" rx="1.8" />
+    <path d="M9 20h6M12 16v4" />
+  </S>
+)
+
 export const EyeIcon = ({ size = 15 }: { size?: number }) => (
   <S size={size}>
     <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />

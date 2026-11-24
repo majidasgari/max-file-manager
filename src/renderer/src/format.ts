@@ -504,7 +504,8 @@ export function joinPath(dir: string, name: string): string {
 /**
  * The folder «terminal here» must start in. A clicked folder wins; a file always means its own
  * folder (flat and search results can point outside the tab), and inside an archive listing the
- * archive's own folder is the only real directory.
+ * archive's own folder is the only real directory. No target at all is a right-click on the empty
+ * area of the listing, which means the tab's folder itself — not its parent.
  */
 export function terminalDir(
   path: string | null,
@@ -514,7 +515,7 @@ export function terminalDir(
 ): string {
   if (path && isDir) return path
   if (archive) return dirOf(archive)
-  return dirOf(path ?? tabPath)
+  return path ? dirOf(path) : tabPath
 }
 
 

@@ -153,6 +153,7 @@ import {
   UnlockIcon,
   ListIcon,
   MenuIcon,
+  MonitorIcon,
   MoonIcon,
   MoveIcon,
   PaletteIcon,
@@ -1931,6 +1932,19 @@ export default function App() {
     else openExternal(e.path)
   }
 
+  /** Multi-selection «Open»: every folder earns a tab, every file goes to its default app. */
+  const openMany = (i: number, paths: string[]): void => {
+    let opened = 0
+    for (const p of paths) {
+      const e = entryOf(i, p)
+      if (!e) continue
+      opened++
+      if (e.dir) addTab(i, e.path)
+      else openExternal(e.path)
+    }
+    if (opened) setNote(t('{n} مورد باز شد', { n: fa(opened) }))
+  }
+
   const loadRef = useRef(load)
   loadRef.current = load
   const panesRef = useRef(panes)
@@ -2602,6 +2616,40 @@ export default function App() {
       case 'open':
         if (path) openEntry(active, path)
         break
+      case 'openAll': {
+        const targets = menuTargets(me.sel, path)
+        if (!targets.length) break
+        void openMany(active, targets)
+        break
+      }
+      case 'runAll': {
+        const targets = menuTargets(me.sel, path).filter((p) => {
+          const e = entryOf(active, p)
+          return !!e && !e.dir && api.platform !== 'win32' && ((e.mode ?? 0) & 0o111) !== 0
+        })
+        if (!targets.length) break
+        void Promise.all(targets.map((p) => api.run(p))).then((rs) => {
+          const failed = rs.filter((r) => 'error' in r).length
+          setNote(
+            failed
+              ? t('{n} مورد اجرا نشد', { n: fa(failed) })
+              : t('{n} مورد اجرا شد', { n: fa(targets.length) })
+          )
+        })
+        break
+      }
+      case 'selectAll':
+        setPanes(
+          (p) =>
+            p &&
+            patch(p, active, {
+              sel: visibleOf(active).map((e) => e.path)
+            })
+        )
+        break
+      case 'paste':
+        void pasteClipboard(curPath)
+        break
       case 'archive':
         if (path) void openArchive(active, path)
         break
@@ -2669,12 +2717,29 @@ export default function App() {
       case 'delete':
         void runSel(active, 'delete')
         break
-      case 'copyPath':
-        if (path) void copyText(path)
+      case 'copyPath': {
+        const targets = menuTargets(me.sel, path)
+        if (targets.length) void copyText(targets.join('\n'))
         break
+      }
       case 'symlink':
         if (path) setSymlinkFor(path)
         break
+      case 'shortcutHere':
+      case 'shortcutDesktop': {
+        // a right-click inside the selection means «all of these», otherwise just the clicked row
+        const targets = path ? (me.sel.length > 1 && me.sel.includes(path) ? me.sel : [path]) : []
+        if (!targets.length) break
+        void api.shortcut(targets, id === 'shortcutDesktop' ? 'desktop' : 'here').then((r) => {
+          setNote(
+            r.errors.length
+              ? t('میانبر ساخته نشد — {error}', { error: r.errors[0] })
+              : t('{n} میانبر ساخته شد', { n: fa(r.done) })
+          )
+          if (r.done) void load(active, tabOf(me), true)
+        })
+        break
+      }
       case 'sha':
         void shaOf(me.sel.length ? me.sel : path ? [path] : [])
         break
@@ -2873,6 +2938,8 @@ export default function App() {
         break
       case 'properties':
         if (path) setPropsFor(path)
+        // blank space in the pane is the open folder, so its sheet must open too
+        else if (curPath) setPropsFor(curPath)
         break
       case 'preview':
         if (path) {
@@ -2979,6 +3046,121 @@ export default function App() {
     return [{ head: true, label: t('نشان‌ها') }, ...rows]
   }
 
+  /**
+   * Right-click inside a multi-selection. Only rows that act on the whole selection belong here,
+   * each labelled with how many items it touches: «Open with» or «Rename» of one row would quietly
+   * ignore the rest, and they are the first thing that used to be wrong with a 12-file selection.
+   */
+  const multiMenuItems = (targets: string[]): MenuItem[] => {
+    const me = panes?.[active]
+    if (!me) return []
+    const entries = targets.map((p) => entryOf(active, p)).filter((e): e is Entry => !!e)
+    const files = entries.filter((e) => !e.dir)
+    const runnable = files.filter(
+      (e) => api.platform !== 'win32' && ((e.mode ?? 0) & 0o111) !== 0
+    )
+    const remoteHere = isRemotePath(curPath) || targets.some((p) => isRemotePath(p))
+    const audioSel = remoteHere ? [] : audioTargets(null, targets)
+    const images = files.filter((e) => isImage(e.ext))
+    const n = fa(targets.length)
+
+    const operations: MenuItem[] = [
+      { id: 'copy', label: t('کپی {n} مورد به پنجرهٔ مقابل', { n }), key: 'F5', icon: <CopyIcon /> },
+      { id: 'move', label: t('انتقال {n} مورد به پنجرهٔ مقابل', { n }), key: 'F6', icon: <MoveIcon /> },
+      { id: 'batch', label: t('تغییر نام گروهی…'), icon: <RenameIcon /> },
+      ...(remoteHere || !prefs.archiveEnabled
+        ? []
+        : [
+            {
+              id: 'compress',
+              label: t('فشرده‌سازی {n} مورد…', { n }),
+              icon: <ArchiveOpenIcon />
+            } as MenuItem
+          ]),
+      { sep: true },
+      { id: 'trash', label: t('سطل بازیافت'), key: 'F8', icon: <TrashIcon /> },
+      { id: 'delete', label: t('حذف قطعی'), key: 'Shift+F8', icon: <TrashIcon />, danger: true }
+    ]
+
+    const systemItems: MenuItem[] = [
+      { id: 'copyPath', label: t('کپی مسیرها ({n})', { n }), icon: <CopyIcon /> },
+      { id: 'sha', label: 'SHA-256', icon: <GaugeIcon /> },
+      ...(remoteHere
+        ? []
+        : [
+            {
+              id: 'shortcut',
+              label: t('ساخت میانبر'),
+              icon: <LinkIcon />,
+              children: [
+                { id: 'shortcutHere', label: t('در همین پوشه'), icon: <FolderIcon /> },
+                { id: 'shortcutDesktop', label: t('روی میزکار'), icon: <MonitorIcon /> }
+              ]
+            } as MenuItem,
+            ...(targets.length === 2
+              ? [
+                  {
+                    id: 'diff',
+                    label: t('مقایسهٔ دو فایل انتخاب‌شده'),
+                    key: 'Ctrl+Shift+Z',
+                    icon: <DupeIcon />
+                  } as MenuItem
+                ]
+              : [])
+          ]),
+      { sep: true } as MenuItem,
+      { id: 'sync', label: t('همگام‌سازی با پنجرهٔ مقابل'), key: 'Ctrl+Shift+Y', icon: <SplitIcon /> } as MenuItem
+    ]
+
+    const detailItems: MenuItem[] = [
+      ...(audioSel.length
+        ? [
+            {
+              id: 'musicAdd',
+              label: t('افزودن به پلی‌لیست موسیقی ({n})', { n: fa(audioSel.length) }),
+              icon: <AudioIcon />
+            } as MenuItem
+          ]
+        : []),
+      ...(remoteHere || !images.length
+        ? []
+        : [
+            {
+              id: 'convert',
+              label: t('تبدیل تصاویر… ({n})', { n: fa(images.length) }),
+              icon: <ImageIcon />
+            } as MenuItem
+          ])
+    ]
+
+    return [
+      { head: true, label: t('{n} مورد انتخاب‌شده', { n }) },
+      { id: 'openAll', label: t('باز کردن {n} مورد', { n }), icon: <PlayIcon /> },
+      ...(runnable.length
+        ? [
+            {
+              id: 'runAll',
+              label: t('اجرای فایل‌های انتخاب‌شده'),
+              icon: <PlayIcon />
+            } as MenuItem
+          ]
+        : []),
+      { sep: true },
+      { id: 'group-operations', label: t('عملیات فایل'), icon: <CopyIcon />, children: operations },
+      { id: 'group-system', label: t('مسیر و سیستم'), icon: <DriveIcon />, children: systemItems },
+      ...(detailItems.length
+        ? [
+            {
+              id: 'group-details',
+              label: t('برچسب و جزئیات'),
+              icon: <StarIcon />,
+              children: detailItems
+            } as MenuItem
+          ]
+        : [])
+    ]
+  }
+
   const menuItems = (path: string | null): MenuItem[] => {
     const me = panes?.[active]
     if (!me) return []
@@ -3061,6 +3243,13 @@ export default function App() {
           children: buildNewMenuItems(true)
         },
         { id: 'refresh', label: t('نوسازی'), key: 'F3', icon: <RefreshIcon /> },
+        { id: 'selectAll', label: t('انتخاب همه'), key: 'Ctrl+A', icon: <GridIcon /> },
+        {
+          id: 'paste',
+          label: t('چسباندن'),
+          key: 'Ctrl+V',
+          icon: <PasteIcon />
+        },
         ...folderOpenWith,
         ...(remoteHere
           ? []
@@ -3081,10 +3270,15 @@ export default function App() {
               { id: 'look', label: t('آیکون این پوشه'), icon: <PaletteIcon /> } as MenuItem
             ]),
         { id: 'columns', label: t('ستون‌ها و اطلاعات…'), icon: <LayersIcon /> },
+        // the blank area is the open folder itself: its own sheet, not «nothing selected»
+        { id: 'properties', label: t('ویژگی‌های این پوشه…'), key: 'Alt+Enter', icon: <InfoIcon /> },
         { sep: true },
         { id: 'tabNew', label: t('تب نو'), icon: <PlusIcon /> }
       ]
     }
+    // a right-click inside the selection is a right-click on every selected row
+    const selection = menuTargets(me.sel, path)
+    if (selection.length > 1) return multiMenuItems(selection)
     const matchingCustom = entry
       ? (prefs.customCommands ?? []).filter((cmd) => matchCustomCommand(cmd, entry.path, entry.dir))
       : []
@@ -3163,6 +3357,20 @@ export default function App() {
             } as MenuItem
           ]
         : []),
+      // a shortcut is one hover away rather than buried in «path and system»
+      ...(remoteHere
+        ? []
+        : [
+            {
+              id: 'shortcut',
+              label: t('ساخت میانبر'),
+              icon: <LinkIcon />,
+              children: [
+                { id: 'shortcutHere', label: t('در همین پوشه'), icon: <FolderIcon /> },
+                { id: 'shortcutDesktop', label: t('روی میزکار'), icon: <MonitorIcon /> }
+              ]
+            } as MenuItem
+          ]),
       { id: 'properties', label: t('ویژگی‌ها…'), key: 'Alt+Enter', icon: <InfoIcon /> },
       ...(entry?.dir && !remoteHere
         ? [
@@ -3566,10 +3774,9 @@ export default function App() {
    * next open (and the saved job) starts from the same choice; the workspace still owns the run.
    */
   const openSync = (mode?: SyncMode) => {
-    if (prefs.layout !== 'dual') {
-      setNote(t('همگام‌سازی در نمای دوپنجره کار می‌کند'))
-      return
-    }
+    // «Sync with the other pane» is a two-pane job: in the single view, reveal the other pane
+    // instead of a dead-end note. The pane keeps whatever folder it already had.
+    if (prefs.layout !== 'dual') updatePrefs({ layout: 'dual' })
     // pane 0 is «left» and pane 1 is «right», whatever pane the user clicked last
     const left = tabOf(panes![0])
     const right = tabOf(panes![1])
@@ -3739,7 +3946,8 @@ export default function App() {
     },
     look: () => void openFolderLook(active),
     properties: () => {
-      const p = panes![active].sel[0]
+      // nothing selected = the folder that is open, same as right-clicking its blank area
+      const p = panes![active].sel[0] ?? tabOf(panes![active])
       if (p) setPropsFor(p)
     },
     prefs: () => setSettingsOpen(true),
@@ -4021,7 +4229,8 @@ export default function App() {
             jump(active, 1)
             return
           case 'properties': {
-            const p = me.sel[me.sel.length - 1]
+            // nothing selected = the folder that is open, same as right-clicking its blank area
+            const p = me.sel[me.sel.length - 1] ?? tabOf(me)
             if (p) setPropsFor(p)
             return
           }

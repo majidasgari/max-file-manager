@@ -267,6 +267,7 @@ function Rows({
               </span>
               <span className="sync-side dim">{size(r.left)}</span>
               <span className={'chip ' + toneOf(r.state)}>{labelOfState(r.state)}</span>
+              {/* dir=auto: a Persian relative path reads right-to-left, a Latin one left-to-right */}
               <span className="sync-rel" dir="auto" title={r.rel}>
                 {r.rel}
               </span>
@@ -579,9 +580,12 @@ export function SyncWorkspace({
       <div className="sync-side-enc" key={side}>
         <div className="sync-side-enc-title">
           <span>{t('رمزنگاری')}</span>
-          <span className={'chip ' + (state.mode === 'off' ? '' : secretReady[side] ? 'add' : 'warn')}>
-            {state.mode === 'off' ? t('خاموش') : secretReady[side] ? t('آماده') : t('کلید ناقص')}
-          </span>
+          {/* the select already says «off»; a second badge for the same word only adds noise */}
+          {state.mode !== 'off' && (
+            <span className={'chip ' + (secretReady[side] ? 'add' : 'warn')}>
+              {secretReady[side] ? t('آماده') : t('کلید ناقص')}
+            </span>
+          )}
         </div>
         <div className="sync-enc-row">
           <select
@@ -1091,6 +1095,9 @@ export function SyncWorkspace({
         >
           {path}
         </div>
+        {/* encryption belongs to this side, so it lives in this card instead of a second row of
+            panels that pushed the compare results below the fold on a short window */}
+        {encRow(side)}
       </div>
     )
   }
@@ -1106,7 +1113,10 @@ export function SyncWorkspace({
           </button>
         </div>
 
-        <div className="sync-pair">
+        {/* the settings block scrolls as one unit when the window is short: it may never push the
+            compare rows and their footer past the sheet's bottom edge */}
+        <div className="sync-config">
+          <div className="sync-pair">
           {sideCard('left')}
           <div className="sync-dir">
             <div className="sync-dir-btns" role="group" aria-label={t('جهت همگام‌سازی')}>
@@ -1138,32 +1148,6 @@ export function SyncWorkspace({
             <span className="sync-dir-label"><ModeLabel mode={mode} /></span>
           </div>
           {sideCard('right')}
-        </div>
-
-        <div className="sync-sides">
-          <section className="sync-side-panel">
-            <div className="sync-side-head">
-              <span className="sync-side-tag">{t('چپ')}</span>
-              <b dir="auto" title={left}>
-                {baseName(left) || left}
-              </b>
-              <span className="spacer" />
-              <span className="dim">{t('تنظیمات این طرف')}</span>
-            </div>
-            {encRow('left')}
-          </section>
-          <div className="sync-sides-line" />
-          <section className="sync-side-panel">
-            <div className="sync-side-head">
-              <span className="sync-side-tag">{t('راست')}</span>
-              <b dir="auto" title={right}>
-                {baseName(right) || right}
-              </b>
-              <span className="spacer" />
-              <span className="dim">{t('تنظیمات این طرف')}</span>
-            </div>
-            {encRow('right')}
-          </section>
         </div>
 
         <div className="sync-common">
@@ -1301,10 +1285,15 @@ export function SyncWorkspace({
           </button>
           {encrypted && <span className="chip warn">{t('هش اجباری')}</span>}
         </div>
-        <div className="dim sync-enc-note">
-          {t('رمزنگاری محتوا با age است؛ نام فایل‌ها روشن می‌ماند و طرف رمزشده با هش مقایسه می‌شود.')}
-          {(encLeftState.mode === 'passphrase' || encRightState.mode === 'passphrase') &&
-            ' ' + t('حالت پسورد برای درخت بزرگ کند است؛ جفت‌کلید سریع‌تر است.')}
+        {/* the age hint only means something while a side is actually encrypted; as a permanent
+            line it ate a row of a short window and pushed the compare table down */}
+        {encrypted && (
+          <div className="dim sync-enc-note">
+            {t('رمزنگاری محتوا با age است؛ نام فایل‌ها روشن می‌ماند و طرف رمزشده با هش مقایسه می‌شود.')}
+            {(encLeftState.mode === 'passphrase' || encRightState.mode === 'passphrase') &&
+              ' ' + t('حالت پسورد برای درخت بزرگ کند است؛ جفت‌کلید سریع‌تر است.')}
+          </div>
+        )}
         </div>
 
         <div className="sync-summary">
@@ -1324,16 +1313,22 @@ export function SyncWorkspace({
               {t('دوطرفه با {n} تصمیم', { n: fa(conflicts.length - unresolved.length) })}
             </span>
           )}
+          {unresolved.length > 0 && (
+            <span className="chip warn">{t('{n} تعارض حل‌نشده', { n: fa(unresolved.length) })}</span>
+          )}
           <span className="spacer" />
-          <button className="btn ghost" disabled={busy} onClick={() => void doCompare()}>
-            {t('مقایسه')}
-          </button>
-          <button className="btn ghost" disabled={busy || !plan} onClick={() => void execute(true)}>
-            {t('تمرین خشک')}
-          </button>
-          <button className="btn" disabled={busy || !plan} onClick={() => void execute(false)}>
-            {t('اجرا')}
-          </button>
+          {/* one group, so the three actions wrap together instead of scattering to the left */}
+          <div className="sync-run">
+            <button className="btn ghost" disabled={busy} onClick={() => void doCompare()}>
+              {t('مقایسه')}
+            </button>
+            <button className="btn ghost" disabled={busy || !plan} onClick={() => void execute(true)}>
+              {t('تمرین خشک')}
+            </button>
+            <button className="btn" disabled={busy || !plan} onClick={() => void execute(false)}>
+              {t('اجرا')}
+            </button>
+          </div>
         </div>
 
         <div className="sync-tabs">
@@ -1352,6 +1347,17 @@ export function SyncWorkspace({
                         : t('نسخه‌ها')}
             </button>
           ))}
+          {/* the plan used to be its own line under the table, costing a short window a whole row
+              of results; it belongs with the tabs that describe what is on screen */}
+          {plan && (
+            <span className="chip sync-plan-chip">
+              {t('طرح: {c} کپی · {d} حذف · {s} رد‌شده', {
+                c: fa(plan.copy.length),
+                d: fa(plan.remove.length),
+                s: fa(plan.skipped)
+              })}
+            </span>
+          )}
           <span className="spacer" />
           {tab === 'rows' && (
             <label className="sync-filter" title={t('صافی وضعیت')}>
@@ -1801,21 +1807,6 @@ export function SyncWorkspace({
               )}
             </div>
           )}
-
-        {plan && tab !== 'history' && tab !== 'jobs' && tab !== 'versions' && (
-          <div className="sync-plan">
-            <span className="dim">
-              {t('طرح: {c} کپی · {d} حذف · {s} رد‌شده', {
-                c: fa(plan.copy.length),
-                d: fa(plan.remove.length),
-                s: fa(plan.skipped)
-              })}
-            </span>
-            {unresolved.length > 0 && (
-              <span className="chip warn">{t('{n} تعارض حل‌نشده', { n: fa(unresolved.length) })}</span>
-            )}
-          </div>
-        )}
 
         {confirm && (
           <div className="sync-confirm">
