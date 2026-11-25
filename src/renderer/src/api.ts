@@ -479,13 +479,24 @@ export type FolderMeta = {
     group?: 'none' | 'name' | 'type' | 'size' | 'date' | 'ext'
   } | null
 }
-export type PreviewKind = 'dir' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'binary'
+export type PreviewKind = 'dir' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'archive' | 'binary'
+/** The names inside an archive, as the preview panel shows them. */
+export type ArchivePreview = {
+  entries: { name: string; size: number; dir: boolean }[]
+  count: number
+  capped: boolean
+  format?: string
+  encrypted?: boolean
+  error?: string
+}
 export type Preview = {
   kind: PreviewKind
   size: number
   mtime: number
   text?: string
   capped?: boolean
+  /** set when `kind === 'archive'` */
+  archive?: ArchivePreview
 }
 export type PlayerChapter = { start: number; end: number; title: string }
 export type PlayerSubtitle = { label: string; lang: string; vtt: string }

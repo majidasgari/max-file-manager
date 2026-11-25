@@ -405,6 +405,8 @@ export type OpenAction =
   | 'preview'
   | 'gallery'
   | 'editor'
+  /** the document belongs in its own window, not in the pane or a side panel */
+  | 'editorWindow'
   | 'playlist'
 
 /**
@@ -432,6 +434,13 @@ export function openAction(
   // whatever the desktop would launch
   if (opts.playlist && !opts.virtual && isPlaylistName(e.name)) return 'playlist'
   if (opts.hasDefaultApp) return 'external'
+  // «Gallery» double-click: a document belongs in its own window and an archive in the preview
+  // panel — the in-pane editor covers the file manager, the archive reader takes the pane over.
+  if (mode === 'gallery' && !opts.virtual) {
+    if (opensInEditor(e)) return 'editorWindow'
+    if (opts.archive !== false && isArchiveName(e.name)) return 'preview'
+  }
+
   if (
     opts.archive !== false &&
     isArchiveName(e.name) &&

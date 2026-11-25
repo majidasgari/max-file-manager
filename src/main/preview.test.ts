@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { zipSync } from 'fflate'
 import { hashFile, hashMany } from './hash.ts'
 import { preview } from './preview.ts'
 
@@ -31,6 +32,21 @@ test('preview: text, binary, image, directory', async () => {
   assert.equal((await preview(code)).kind, 'text')
 
   assert.equal((await preview(root)).kind, 'dir')
+})
+
+test('preview: an archive lists its names instead of reading bytes as text', async () => {
+  const root = await tmp()
+  const zip = path.join(root, 'bundle.zip')
+  const enc = (v: string) => new TextEncoder().encode(v)
+  await fs.writeFile(zip, zipSync({ 'a.txt': enc('alpha'), 'dir/b.txt': enc('beta') }))
+  const p = await preview(zip)
+  assert.equal(p.kind, 'archive', 'a ZIP is not a text file, even though it has no NUL in its header')
+  assert.equal(p.archive?.count, 2)
+  assert.deepEqual(
+    (p.archive?.entries ?? []).map((e) => e.name).sort(),
+    ['a.txt', 'dir/b.txt']
+  )
+  assert.equal(p.archive?.format, 'zip')
 })
 
 test('preview: long text is capped and says so', async () => {

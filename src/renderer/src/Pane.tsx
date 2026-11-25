@@ -235,6 +235,7 @@ export function Pane(props: Props) {
   const [regex, setRegex] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const headRef = useRef<HTMLDivElement>(null)
+  const crumbsRef = useRef<HTMLDivElement | null>(null)
   const anchor = useRef(0)
 
   // a ref callback, not a mount effect: the rows element is unmounted while this pane shows a
@@ -443,6 +444,28 @@ export function Pane(props: Props) {
     props.onMetrics?.({ cols, rows })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cols, rows])
+
+  // The breadcrumb keeps every name at its natural width and scrolls instead; a narrow pane shows
+  // the end of the path (the folder you are in), so it is pinned to the right on every change.
+  useEffect(() => {
+    const el = crumbsRef.current
+    if (!el) return
+    const pin = (): void => {
+      el.scrollLeft = el.scrollWidth
+    }
+    pin()
+    // a second pass after the browser has laid the fresh crumbs out (fonts, ellipsis-free widths)
+    const raf = requestAnimationFrame(pin)
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver === 'function') {
+      ro = new ResizeObserver(pin)
+      ro.observe(el)
+    }
+    return () => {
+      cancelAnimationFrame(raf)
+      ro?.disconnect()
+    }
+  }, [cur, addrEdit])
 
   // windowing: blocks (groups) are laid out first, then only the rows/tiles on screen are mounted
   const HEADER_H = 26
@@ -765,7 +788,7 @@ export function Pane(props: Props) {
           <RefreshIcon />
         </button>
         {addrEdit === null ? (
-          <div className="crumbs">
+          <div className="crumbs" ref={crumbsRef}>
             {crumbs(cur).map((c) => (
               <span key={c.path} className="crumb-wrap">
                 <button

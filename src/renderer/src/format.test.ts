@@ -419,7 +419,15 @@ test('openAction: the «Run» preference beats the HTML preview and the built-in
   assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'preview'), 'preview')
   assert.equal(openAction(e('page.html', false, 10, 0, 'html'), 'gallery'), 'preview')
   assert.equal(openAction(e('photo.png', false, 10, 0, 'png'), 'gallery'), 'gallery')
-  assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'gallery'), 'editor')
+  // a document in «Gallery» mode gets its own window: the in-pane editor would cover the manager
+  assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'gallery'), 'editorWindow')
+  assert.equal(openAction(e('LICENSE', false, 10, 0, ''), 'gallery'), 'editorWindow')
+  // …and an archive in that same mode is a thing to look inside: the preview panel, not the reader
+  assert.equal(openAction(e('bundle.zip', false, 10, 0, 'zip'), 'gallery'), 'preview')
+  assert.equal(openAction(e('bundle.tar.gz', false, 10, 0, 'gz'), 'gallery'), 'preview')
+  // a chosen app and the archive engine being off still win over the gallery mode
+  assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'gallery', { hasDefaultApp: true }), 'external')
+  assert.equal(openAction(e('bundle.zip', false, 10, 0, 'zip'), 'gallery', { archive: false }), 'external')
   // a virtual listing (inside an archive) has nothing to read or preview
   assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'preview', { virtual: true }), 'preview')
   assert.equal(openAction(e('notes.md', false, 10, 0, 'md'), 'gallery', { virtual: true }), 'external')

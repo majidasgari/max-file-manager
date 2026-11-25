@@ -954,6 +954,8 @@ const EN: Record<string, string> = {
   '{n} حذف‌شده': '{n} removed',
   '… {n} ردیف دیگر': '… {n} more rows',
   '… {n} خط دیگر نمایش داده نشد': '… {n} more lines were not shown',
+  '{n} مورد در آرشیو': '{n} items in the archive',
+  '… فقط {n} مورد اول نشان داده شد': '… only the first {n} items are listed',
   'پیش‌نمایش برای این نوع فایل نیست': 'No preview for this file type',
   'ویرایش‌شده': 'Edited',
   'کپی تصویر در کلیپ‌بورد (Ctrl+C)': 'Copy image to clipboard (Ctrl+C)',

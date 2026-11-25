@@ -7,7 +7,7 @@ import {
   type Preview
 } from './api'
 import { dirOf, fa, fmtDate, fmtSize, mediaUrl, thumbUrl } from './format'
-import { ChevronLeftIcon, ChevronRightIcon, FileIcon, GridIcon, VideoIcon, XIcon } from './Icons'
+import { ChevronLeftIcon, ChevronRightIcon, FileIcon, FolderIcon, GridIcon, VideoIcon, XIcon } from './Icons'
 import { renderMarkdown } from './md'
 import { cleanHtml, isHtmlPath } from './html'
 import { highlightCode, langFor } from './highlight'
@@ -312,6 +312,35 @@ export function PreviewPanel({
                 ))}
                 {lines.length > 4000 && (
                   <div className="pln-more">{t('… {n} خط دیگر نمایش داده نشد', { n: fa(lines.length - 4000) })}</div>
+                )}
+              </div>
+            )}
+            {data?.kind === 'archive' && (
+              <div className="preview-archive" dir="auto">
+                <div className="pa-head">
+                  <span>{t('{n} مورد در آرشیو', { n: fa(data.archive?.count ?? 0) })}</span>
+                  {data.archive?.format && <span className="dim">{data.archive.format}</span>}
+                  {data.archive?.encrypted && <span className="pill">{t('رمزدار')}</span>}
+                </div>
+                {data.archive?.error ? (
+                  <div className="preview-empty">{data.archive.error}</div>
+                ) : (
+                  <div className="pa-list">
+                    {data.archive?.entries.map((x, n) => (
+                      <div className={'pa-row' + (x.dir ? ' dir' : '')} key={`${n}:${x.name}`}>
+                        {x.dir ? <FolderIcon size={13} /> : <FileIcon size={13} />}
+                        <span className="pa-name" dir="auto">
+                          {x.name}
+                        </span>
+                        {!x.dir && <span className="pa-size">{fmtSize(x.size, false)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {data.archive?.capped && !data.archive.error && (
+                  <div className="pln-more">
+                    {t('… فقط {n} مورد اول نشان داده شد', { n: fa(data.archive.entries.length) })}
+                  </div>
                 )}
               </div>
             )}

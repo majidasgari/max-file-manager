@@ -1929,6 +1929,12 @@ export default function App() {
     else if (action === 'preview') openPreview(e.path)
     else if (action === 'gallery') openGallery(i, e.path)
     else if (action === 'editor') openEditor(e.path)
+    else if (action === 'editorWindow') {
+      // its own window, like the «Open in a new window» row: the panel must not keep the file too
+      setPreviewOn(false)
+      setPreviewPath(null)
+      void api.app.openViewer('editor', e.path)
+    }
     else if (action === 'playlist') void openPlaylistFile(e.path)
     else openExternal(e.path)
   }

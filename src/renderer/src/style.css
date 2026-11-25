@@ -1020,15 +1020,33 @@ input {
   align-items: center;
   gap: 0;
   direction: ltr;
-  min-width: 0;
-  overflow: hidden;
+  /* grow into the row's spare width: the spare space belongs to the path, not to the spacer */
+  flex: 1 1 auto;
+  /* a floor, so a tight row scrolls the path instead of collapsing the whole strip to nothing */
+  min-width: 88px;
+  /* the names keep their natural width and the strip scrolls: a squeezed crumb («Progra…») told
+     the user nothing, and flex shrink is what squeezed them. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   color: var(--dim);
+}
+.crumbs::-webkit-scrollbar {
+  height: 0;
 }
 .crumb-wrap {
   display: inline-flex;
   align-items: center;
-  color: var(--line);
+  flex: none;
+  color: var(--dim);
   min-width: 0;
+}
+/* the separator between crumbs reads stronger than the names, so the path has visible segments */
+.crumb-wrap > svg {
+  flex: none;
+  color: color-mix(in srgb, var(--text) 58%, transparent);
+  stroke-width: 2.4;
 }
 .crumb-wrap:first-child > svg {
   display: none;
@@ -1038,9 +1056,7 @@ input {
   border-radius: 4px;
   color: var(--dim);
   white-space: nowrap;
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
 }
 .crumb:hover {
   background: var(--panel-3);
@@ -4193,6 +4209,64 @@ html[data-rounded='0'] .app {
   color: var(--dim);
   padding: 6px 0;
 }
+/* archive preview: the names inside a ZIP/TAR, sized so a long name truncates instead of wrapping */
+.preview-archive {
+  width: 100%;
+  align-self: stretch;
+  text-align: start;
+  font-size: 12px;
+  overflow: auto;
+  padding: 2px 2px 8px;
+}
+.pa-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 4px;
+}
+.pa-list {
+  display: flex;
+  flex-direction: column;
+}
+.pa-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  min-width: 0;
+}
+.pa-row:hover {
+  background: var(--panel-3);
+}
+.pa-row > svg {
+  flex: none;
+  color: var(--dim);
+}
+.pa-row.dir .pa-name {
+  font-weight: 600;
+}
+.pa-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: ltr;
+  text-align: start;
+}
+.pa-row.dir .pa-name {
+  direction: inherit;
+}
+.pa-size {
+  flex: none;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
 
 /* ---------- inline editor ---------- */
 .ed-shell {
@@ -4435,14 +4509,43 @@ html[data-rounded='0'] .app {
   padding: 0.1em 0.35em;
   border-radius: 4px;
 }
+/* A wide table keeps its own width and the preview scrolls sideways: squeezing the columns to the
+   panel width stacked every Persian word into a vertical column of single words («متن و markdown
+   خط جدید را نمی‌فهمد» was really this). */
+/* A wide table keeps its natural width and scrolls inside its own box (renderMarkdown wraps every
+   table in `.md-table-scroll`): squeezing the columns to the panel width stacked every Persian word
+   into a vertical line of single words. */
 .md-body table {
   border-collapse: collapse;
+  margin: 0;
+  width: max-content;
+  min-width: 100%;
+}
+.md-table-scroll {
   margin: 0.7em 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .md-body td,
 .md-body th {
   border: 1px solid var(--line);
   padding: 0.3em 0.6em;
+  vertical-align: top;
+}
+.md-body td > *:first-child,
+.md-body th > *:first-child {
+  margin-top: 0;
+}
+.md-body td > *:last-child,
+.md-body th > *:last-child {
+  margin-bottom: 0;
+}
+/* the body scrolls down only: a wide table takes its own scrollbar, a long word wraps */
+.preview-body.md-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: block;
+  overflow-wrap: anywhere;
 }
 .md-body img {
   max-width: 100%;

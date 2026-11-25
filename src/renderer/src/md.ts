@@ -18,19 +18,35 @@ marked.use({
 })
 
 /**
+ * A wide table must scroll on its own instead of squeezing its columns to the panel width (which
+ * stacked every word into a vertical line) or pushing a horizontal scrollbar onto the whole
+ * preview. Each table gets its own scroll box.
+ */
+function wrapTables(html: string): string {
+  const tpl = document.createElement('template')
+  tpl.innerHTML = html
+  tpl.content.querySelectorAll('table').forEach((table) => {
+    const box = document.createElement('div')
+    box.className = 'md-table-scroll'
+    table.replaceWith(box)
+    box.appendChild(table)
+  })
+  return tpl.innerHTML
+}
+
+/**
  * markdown → sanitized HTML with per-block direction. Everything the editor shows and everything
  * the PDF export prints goes through here, so both always agree.
  */
 export function renderMarkdown(text: string, baseDir?: string): string {
   const raw = marked.parse(text || '') as string
-  return applyAutoDirection(
-    DOMPurify.sanitize(rewriteImageSources(raw, baseDir), {
-      USE_PROFILES: { html: true },
-      // the default scheme list plus mfm://, which is how every other surface loads a local file
-      ALLOWED_URI_REGEXP:
-        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|mfm):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
-    })
-  )
+  const clean = DOMPurify.sanitize(rewriteImageSources(raw, baseDir), {
+    USE_PROFILES: { html: true },
+    // the default scheme list plus mfm://, which is how every other surface loads a local file
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|mfm):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+  })
+  return wrapTables(applyAutoDirection(clean))
 }
 
 export const firstDir = (text: string): 'rtl' | 'ltr' => dirOfText(text)
