@@ -7,7 +7,8 @@ import { t } from './i18n.ts'
 import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { Plugin, PluginKey } from '@milkdown/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/prose/view'
-import { $prose, replaceAll } from '@milkdown/utils'
+import { $prose, $remark, replaceAll } from '@milkdown/utils'
+import { remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { resolveMdAsset } from './md-asset.ts'
 import { EditorView as CmView } from '@codemirror/view'
 import '@milkdown/crepe/theme/common/style.css'
@@ -15,6 +16,48 @@ import '@milkdown/crepe/theme/frame.css'
 
 const RTL_RE = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/
 const CONTAINER_NODES = new Set(['blockquote', 'bullet_list', 'ordered_list', 'table'])
+
+/**
+ * A newline inside a paragraph is a line break, the way the preview panel renders the same file
+ * (`breaks: true`) and the way these Persian documents are written. Milkdown's own remark plugin
+ * turns a soft break into an *inline* hardbreak — a `span` holding a space — so a single Enter
+ * showed nothing and the lines ran together. This runs after that plugin (registered later) and
+ * asks for a real `<br>`. `softBreakWrite` puts the serializer back on a plain newline, so saving
+ * an untouched file never grows a trailing backslash.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const visibleBreaks = $remark('mfm-visible-breaks', () => () => (tree: any) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const walk = (node: any): void => {
+    if (!Array.isArray(node?.children)) return
+    for (const child of node.children) {
+      if (child?.type === 'break') child.data = { ...(child.data ?? {}), isInline: false }
+      walk(child)
+    }
+  }
+  walk(tree)
+})
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const softBreakWrite = (prev: any): any => ({
+  ...prev,
+  handlers: {
+    ...prev.handlers,
+    /**
+     * mdast calls a hard break `break`, and its default handler writes a backslash before the
+     * newline — every file that came back from the editor would grow `\` at the end of each line
+     * that had a soft break. Write the plain newline the document was authored with instead; inside
+     * setext headings and table cells an unconditional newline is not allowed, so fall back to the
+     * default's space.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    break: (_node: any, _parent: any, state: any, info: any) => {
+      const flat = state.stack.includes('tableCell') || state.stack.includes('setextHeading')
+      if (flat) return /[	 ]/.test(info.before) ? '' : ' '
+      return String.fromCharCode(10)
+    }
+  }
+})
 
 /** Each block carries its own dir; code blocks are always LTR. */
 const autoDirection = $prose(
@@ -202,6 +245,9 @@ export async function createVisualEditor(
     }
   })
 
+  crepe.editor.use(visibleBreaks)
+  // configured at create time: the serializer reads this slice when the remark plugins are built
+  crepe.editor.config((ctx) => ctx.update(remarkStringifyOptionsCtx, softBreakWrite))
   crepe.editor.use(autoDirection)
 
   // registered before create(): a listener added afterwards never fires
