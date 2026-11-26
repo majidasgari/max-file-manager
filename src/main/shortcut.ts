@@ -36,9 +36,12 @@ export type ShortcutDeps = {
  * file type from the extension, and a trailing « - Shortcut» would make every link a mystery icon.
  */
 export function shortcutName(target: string, platform: NodeJS.Platform = process.platform): string {
-  const name = path.basename(target)
+  // the platform names the target's syntax, not the host's: a `C:\…` path must split on `\` even
+  // when this runs (or is tested) on Linux
+  const p = platform === 'win32' ? path.win32 : path
+  const name = p.basename(target)
   if (platform !== 'win32') return `Link to ${name}`
-  const ext = path.extname(name)
+  const ext = p.extname(name)
   return `${isProgramName(name) ? name.slice(0, name.length - ext.length) : name} - Shortcut.lnk`
 }
 
