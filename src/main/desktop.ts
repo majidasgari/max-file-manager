@@ -30,6 +30,29 @@ export function revealFile(p: string): { ok: true } | { error: string } {
 let dragIcon: Electron.NativeImage | null = null
 
 /**
+ * Hands a Windows *shell namespace* target back to Explorer.
+ *
+ * «::{CLSID}» (Control Panel, This PC, the Recycle Bin, a packaged app's folder) has no
+ * file-system path behind it, so the panes cannot list it. It is not opened with
+ * `shell.openPath`/`ShellExecute` either: while this app owns the folder verb that call comes
+ * straight back here (see `openTarget`). `explorer.exe <target>` is the one route the shell
+ * resolves for itself, so the Control Panel really opens in the Control Panel.
+ */
+export function openShellNamespace(target: string): { ok: true } | { error: string } {
+  if (process.platform !== 'win32') return { error: 'windows only' }
+  const t = String(target ?? '').trim()
+  if (!/^(?:::|shell:)/i.test(t)) return { error: 'مسیر نامعتبر' }
+  try {
+    const child = spawn('explorer.exe', [t], { detached: true, stdio: 'ignore', windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+    return { ok: true }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
  * Starts a real OS drag so the file can be dropped into Dolphin, a chat window, an upload field…
  * Called from `ipcRenderer.send` during `dragstart`.
  */

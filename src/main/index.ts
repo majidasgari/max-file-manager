@@ -36,7 +36,7 @@ import {
   listArchive,
   verifyArchive
 } from './archives.ts'
-import { targetPath } from './launch-path.ts'
+import { openTarget } from './launch-path.ts'
 import { saveImage, saveImageAs } from './image.ts'
 import { hashMany } from './hash.ts'
 import { iconSetPaths, iconsIn, themeDirs } from './icons.ts'
@@ -88,7 +88,7 @@ import {
   type DesktopApp
 } from './apps.ts'
 import { appIconFile } from './appicons.ts'
-import { revealFile, runCustomCommand, startFileDrag } from './desktop.ts'
+import { revealFile, runCustomCommand, openShellNamespace, startFileDrag } from './desktop.ts'
 import { autoTerminal, listTerminals, openTerminal } from './terminals.ts'
 import { setDesktopWallpaper } from './wallpaper.ts'
 import { readTags, writeId3 } from './metadata.ts'
@@ -304,7 +304,8 @@ let chrome: Chrome = {
 }
 let win: BrowserWindow | null = null
 
-const firstPath = targetPath(process.argv, app.getAppPath() || process.cwd())
+const incoming = openTarget(process.argv, app.getAppPath() || process.cwd())
+const firstPath = incoming?.kind === 'path' ? incoming.value : null
 const portalOnly = process.argv.includes('--portal-backend')
 
 // macOS hands "open this folder" over as an Apple event, not argv; queue it until the window exists
@@ -332,11 +333,27 @@ if (bootPrefs.singleInstance !== false && !process.env['SMOKE_SHOT'] && !portalO
   }
   app.on('second-instance', (_e, argv) => {
     if (argv.includes('--portal-backend')) void portalServer.start().catch(() => undefined)
+    const target = openTarget(argv, app.getAppPath() || process.cwd())
+    // a special folder (Control Panel, This PC…) belongs to Explorer: hand it back, leave this window alone
+    if (target?.kind === 'shell') {
+      openShellNamespace(target.value)
+      return
+    }
     if (!win || portalOnly) return
     forceForeground(win)
-    const target = targetPath(argv, app.getAppPath() || process.cwd())
-    if (target) win.webContents.send('app:open-path', target)
+    if (target) win.webContents.send('app:open-path', target.value)
   })
+}
+
+/**
+ * A shell-namespace target is not a folder this app can list, so it is never accepted: it goes back
+ * to Explorer and this launch leaves no window behind. Only reached by the process that owns the
+ * single-instance lock — a later launch forwards its argv to the running window instead, and the
+ * `second-instance` handler above delegates the same way.
+ */
+if (incoming?.kind === 'shell') {
+  openShellNamespace(incoming.value)
+  process.exit(0)
 }
 
 /** Sizes/mtimes need one stat per file; chunked so a 10k-file folder can't exhaust fds. */
