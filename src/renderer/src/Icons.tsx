@@ -595,6 +595,17 @@ export const SettingsIcon = ({ size = 15 }: { size?: number }) => (
     <circle cx="15" cy="17" r="2" />
   </S>
 )
+/** The Windows Control Panel: a panel window carrying switches, so it does not read as «our settings». */
+export const ControlPanelIcon = ({ size = 15 }: { size?: number }) => (
+  <S size={size}>
+    <rect x="3" y="4.5" width="18" height="15" rx="2" />
+    <path d="M3 9h18" />
+    <path d="M6.5 12.5h4M6.5 16h6" />
+    <circle cx="15" cy="12.5" r="1.5" />
+    <circle cx="16.5" cy="16" r="1.5" />
+  </S>
+)
+
 export const MinusIcon = () => (
   <S size={13}>
     <path d="M5 12h14" />

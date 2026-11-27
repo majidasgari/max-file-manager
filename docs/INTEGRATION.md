@@ -168,9 +168,9 @@ grep -E '^(Exec|MimeType|Icon)=' ~/.local/share/applications/max-file-manager.de
 کلیدهای **کاربر** (HKCU) را می‌نویسد و نیازی به ادمین ندارد:
 
 ```
-HKCU\Software\Classes\Folder\shell\MaxFileManager\command     = "<app.exe>" "%1"
-HKCU\Software\Classes\Folder\shell                             (default) = MaxFileManager
-همین دو کلید برای Directory و Drive هم نوشته می‌شوند
+HKCU\Software\Classes\Directory\shell\MaxFileManager\command  = "<app.exe>" "%1"
+HKCU\Software\Classes\Directory\shell                          (default) = MaxFileManager
+همین دو کلید برای Drive هم نوشته می‌شوند — و فقط همین دو
 ```
 
 نتیجه: دابل‌کلیک روی پوشه در دسکتاپ یا هر برنامه‌ای که `ShellExecute` می‌زند (Open Containing
@@ -190,30 +190,38 @@ reg query "HKCU\Software\Classes\Folder\shell\MaxFileManager\command" /ve
 «Application not found» که بعضی ابزارهای tweak می‌سازند — به‌جای آن یک verb سالم Explorer در
 HKCU نوشته می‌شود، نه همان مقدار خراب.
 
-### لینک‌های «کنترل پنل» و پوشه‌های ویژه پذیرفته نمی‌شوند
+### فقط پوشه‌های واقعی: کلاس‌ها و لینک‌های کنترل پنل
 
-همان verb پوشه فقط مال پوشه‌های واقعی نیست: وقتی مکس مدیر فایل پیش‌فرض است، باز کردن
-**Control Panel** (و همین‌طور This PC، Recycle Bin یا پوشهٔ یک اپ Store) هم به همان verb می‌رسد و
-ویندوز مکس را با یک مسیر شل‌نیزم‌اسپیس صدا می‌زند، نه با مسیر فایل:
+verb فقط روی **`Directory`** (پوشهٔ فایل‌سیستمی) و **`Drive`** (درایو) نوشته می‌شود. `Folder` عمداً
+دست‌نخورده می‌ماند، چون کلاس پایهٔ همهٔ شل‌نیزم‌اسپیس‌هاست: Control Panel، This PC، Recycle Bin و
+پوشهٔ اپ‌های Store. تا وقتی `Folder` هم ثبت بود، ویندوز کلیک Control Panel را هم به مکس می‌داد و
+مکس را با یک مسیر شل‌نیزم‌اسپیس صدا می‌زد، نه با مسیر پوشه:
 
 ```
 "Max File Manager.exe" "::{26EE0668-A00A-44D7-9371-BEB064C98683}"
 ```
 
-پشت این رشته فایل‌سیستمی نیست که پنل‌ها فهرستش کنند، پس مکس چنین هدفی را **قبول نمی‌کند**:
-`openTarget` (`src/main/launch-path.ts`) آن را از نوع `shell` تشخیص می‌دهد و `openShellNamespace`
-(`src/main/desktop.ts`) همان رشته را به `explorer.exe` می‌دهد و پروسه بدون ساختن پنجره خارج می‌شود
-(`process.exit(0)` در `index.ts`). نتیجه: کنترل پنل در خودِ کنترل پنل باز می‌شود.
+نتیجه این بود که Control Panel باز نمی‌شد. حالا فقط پوشه‌های واقعی به مکس می‌آیند و پوشه‌های ویژه
+همان‌طور در Explorer باز می‌شوند. بیلدهای قدیمی‌تر `Folder` را هم می‌نوشتند، پس
+`migrateWindowsShellRegistration()` هنگام بالا آمدن همان verb را — فقط اگر هنوز مال ما باشد —
+برمی‌دارد و verb سیستمی `open` را برمی‌گرداند؛ کاربر لازم نیست تنظیم را دو بار دست بزند.
 
-- `shell.openPath`/`ShellExecute` این‌جا به کار نمی‌رود؛ چون مکس خودش verb پوشه را دارد، آن فراخوانی
-  دقیقاً به مکس برمی‌گردد (حلقه). تنها راه، `explorer.exe <target>` است که شل خودش بازش می‌کند.
-- حالت دوم: برنامه باز است و کاربر جای دیگری روی لینک کنترل پنل می‌زند → ویندوز یک نسخهٔ دوم بالا
-  می‌آورد، آن نسخه با تک‌نمونه بودن خارج می‌شود و `second-instance` همان هدف را تحویل Explorer
-  می‌دهد؛ پنجرهٔ باز مکس دست‌نخورده می‌ماند.
-- پوشهٔ واقعی همان‌طور که بود در مکس باز می‌شود (تست: `ShellExecute` روی `C:\Windows`).
+دو نکتهٔ فنی که در همین مسیر اندازه‌گیری شد:
 
-بررسی: با روشن بودن «مدیر فایل پیش‌فرض سیستم» (تنظیمات → راه‌اندازی) از Win+R باز کن
-`::{26EE0668-A00A-44D7-9371-BEB064C98683}` — باید پنجرهٔ Control Panel بیاید و هیچ پنجرهٔ مکس نیاید.
+- **`explorer.exe ::{CLSID}` پنجرهٔ دیده‌نشده می‌سازد.** به‌عنوان تور نجات، `openTarget` در
+  `src/main/launch-path.ts` هدف‌های `::{}`/`shell:` را `kind: 'shell'` تشخیص می‌دهد و
+  `openShellNamespace` در `src/main/desktop.ts` آن‌ها را با `explorer.exe /n,<target>` باز می‌کند.
+  با شکل ساده (بدون `/n,`) شش پنجرهٔ پنهان Control Panel در explorer.exe ساخته شد و هیچ پنجرهٔ
+  دیده‌شدنی نه — یعنی «هیچ اتفاقی نمی‌افتد».
+- **`shell.openPath`/`ShellExecute` این‌جا جواب نمی‌دهد:** با verb خودمان به خودمان برمی‌گردد (حلقه).
+  فقط `explorer.exe` است که شل خودش بازش می‌کند.
+
+دکمهٔ **Control Panel** در هدر برنامه (فقط ویندوز، کنار تنظیمات) همان مسیر را صدا می‌زند
+(`desktop:openControlPanel`).
+
+بررسی: با روشن بودن «مدیر فایل پیش‌فرض سیستم» (تنظیمات → راه‌اندازی) دابل‌کلیک روی یک پوشه باید
+مکس را باز کند و از Win+R مسیر `::{26EE0668-A00A-44D7-9371-BEB064C98683}` باید پنجرهٔ Control Panel
+بیاید، بدون هیچ پنجرهٔ مکس.
 
 ## ویندوز: Win+E وقتی برنامه بسته است
 

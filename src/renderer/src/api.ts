@@ -635,6 +635,8 @@ export type Api = {
   }
   reveal(path: string): Promise<{ ok: true } | { error: string }>
   isDefaultFileManager(): Promise<boolean>
+  /** Windows only: open the Control Panel in its own window (a shell namespace, not a folder) */
+  openControlPanel(): Promise<{ ok: true } | { error: string }>
   setDefaultFileManager(): Promise<{ ok: boolean; error?: string }>
   /** Windows only: give the folder classes their old default verb back */
   clearDefaultFileManager(): Promise<{ ok: boolean }>

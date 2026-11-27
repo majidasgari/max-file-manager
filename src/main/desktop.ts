@@ -43,7 +43,10 @@ export function openShellNamespace(target: string): { ok: true } | { error: stri
   const t = String(target ?? '').trim()
   if (!/^(?:::|shell:)/i.test(t)) return { error: 'مسیر نامعتبر' }
   try {
-    const child = spawn('explorer.exe', [t], { detached: true, stdio: 'ignore', windowsHide: true })
+    // `/n,` is the form Explorer reads as a real navigation: a bare `explorer.exe ::{CLSID}` opens a
+    // window that never shows (measured: six hidden «Control Panel» windows in explorer.exe and no
+    // visible one), while `/n,::{CLSID}` gives exactly one visible window.
+    const child = spawn('explorer.exe', [`/n,${t}`], { detached: true, stdio: 'ignore' })
     child.on('error', () => {})
     child.unref()
     return { ok: true }
@@ -51,6 +54,9 @@ export function openShellNamespace(target: string): { ok: true } | { error: stri
     return { error: e instanceof Error ? e.message : String(e) }
   }
 }
+
+/** The Control Panel's own CLSID: what a «Control Panel» link hands over on Windows. */
+export const WINDOWS_CONTROL_PANEL = '::{26EE0668-A00A-44D7-9371-BEB064C98683}'
 
 /**
  * Starts a real OS drag so the file can be dropped into Dolphin, a chat window, an upload field…

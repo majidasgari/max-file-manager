@@ -1169,7 +1169,7 @@ export async function isDefaultFileManager(): Promise<boolean> {
     return current.includes('max-file-manager') || current.includes('mfm')
   }
   if (process.platform === 'win32') {
-    const defaults = await Promise.all(WIN_FOLDER_CLASSES.map(shellDefault))
+    const defaults = await Promise.all(WIN_FM_CLASSES.map(shellDefault))
     return defaults.every((d) => d === WIN_FM_VERB)
   }
   return false
@@ -1179,7 +1179,15 @@ export async function isDefaultFileManager(): Promise<boolean> {
 // A double-click on a folder (desktop included) is a ShellExecute on the folder's class, so the
 // per-user HKCU handler wins. Explorer windows still navigate in place — that is Explorer's own
 // behaviour and not something a registry handler can change.
-const WIN_FOLDER_CLASSES = ['Folder', 'Directory', 'Drive'] as const
+//
+// Only the two classes a *real* folder carries: `Directory` for a file-system folder, `Drive` for a
+// volume. `Folder` — the class this list used to include — is the base every shell namespace item
+// inherits (Control Panel, This PC, the Recycle Bin, a Store app's folder), so registering there made
+// Windows hand those to this app as well: clicking Control Panel launched it with
+// «::{26EE0668-…}» and no folder ever appeared. Special folders stay with Explorer now.
+const WIN_FM_CLASSES = ['Directory', 'Drive'] as const
+/** Classes an older build registered under; cleaned once so an existing install converges. */
+const WIN_LEGACY_CLASSES = ['Folder'] as const
 const WIN_FM_VERB = 'MaxFileManager'
 
 /** `"app.exe" "%1"`, or `"electron.exe" "<appDir>" "%1"` when running from a checkout. */
@@ -1218,7 +1226,7 @@ export async function setDefaultFileManagerWindows(
   if (!path.isAbsolute(exe)) return { ok: false, error: 'bad_path' }
   const command = windowsFileManagerCommand(exe, appDir, packaged)
   const previous: Record<string, string> = {}
-  for (const cls of WIN_FOLDER_CLASSES) {
+  for (const cls of WIN_FM_CLASSES) {
     previous[cls] = await shellDefault(cls)
     const base = `HKCU\\Software\\Classes\\${cls}\\shell`
     const verb = `${base}\\${WIN_FM_VERB}`
@@ -1231,7 +1239,29 @@ export async function setDefaultFileManagerWindows(
       if (!(await reg(step)).ok) return { ok: false, error: 'reg_failed', previous }
     }
   }
+  // A build before this one also owned `Folder`: drop that verb so special folders go back to
+  // Explorer without the user having to toggle the setting twice.
+  await releaseLegacyFolderVerb()
   return { ok: true, previous }
+}
+
+/**
+ * Removes the `Folder` verb an older build wrote, and only if it is still ours — another file
+ * manager may have taken that class over since, and its default verb must survive.
+ */
+async function releaseLegacyFolderVerb(): Promise<boolean> {
+  if ((await shellDefault('Folder')) !== WIN_FM_VERB) return false
+  const base = `HKCU\\Software\\Classes\\Folder\\shell`
+  await reg(['delete', `${base}\\${WIN_FM_VERB}`, '/f'])
+  // an empty default would break every special folder, so Explorer's own verb goes back
+  await repairFolderOpen('Folder')
+  return true
+}
+
+/** One-time convergence for an install that registered under `Folder` before this build. */
+export async function migrateWindowsShellRegistration(): Promise<void> {
+  if (process.platform !== 'win32') return
+  await releaseLegacyFolderVerb()
 }
 
 /** The standard Explorer command for a folder; `%SystemRoot%` needs REG_EXPAND_SZ. */
@@ -1259,14 +1289,19 @@ async function repairFolderOpen(cls: string): Promise<void> {
   await reg(['add', `HKCU\\Software\\Classes\\${cls}\\shell`, '/ve', '/d', 'open', '/f'])
 }
 
-/** Undo: drop the verb and give each class its old default back (empty → remove the value). */
+/**
+ * Undo: drop the verb and give each class its old default back (empty → the Explorer verb). A class
+ * this app never touched is left alone: another file manager may own it now.
+ */
 export async function clearDefaultFileManagerWindows(
   previous: Record<string, string> | null
 ): Promise<{ ok: boolean }> {
-  for (const cls of WIN_FOLDER_CLASSES) {
+  for (const cls of [...WIN_FM_CLASSES, ...WIN_LEGACY_CLASSES]) {
     const base = `HKCU\\Software\\Classes\\${cls}\\shell`
+    const recorded = previous?.[cls]
+    if (!recorded && (await shellDefault(cls)) !== WIN_FM_VERB) continue
     await reg(['delete', `${base}\\${WIN_FM_VERB}`, '/f'])
-    const was = previous?.[cls] ?? ''
+    const was = recorded ?? ''
     if (was && was !== WIN_FM_VERB && was !== 'none') await reg(['add', base, '/ve', '/d', was, '/f'])
     else await repairFolderOpen(cls)
   }

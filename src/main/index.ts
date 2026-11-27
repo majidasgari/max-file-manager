@@ -77,6 +77,7 @@ import {
   isRunnableFile,
   launchApp,
   listApps,
+  migrateWindowsShellRegistration,
   mimeForPath,
   openWithDefault,
   openWithInfo,
@@ -88,7 +89,7 @@ import {
   type DesktopApp
 } from './apps.ts'
 import { appIconFile } from './appicons.ts'
-import { revealFile, runCustomCommand, openShellNamespace, startFileDrag } from './desktop.ts'
+import { revealFile, runCustomCommand, openShellNamespace, WINDOWS_CONTROL_PANEL, startFileDrag } from './desktop.ts'
 import { autoTerminal, listTerminals, openTerminal } from './terminals.ts'
 import { setDesktopWallpaper } from './wallpaper.ts'
 import { readTags, writeId3 } from './metadata.ts'
@@ -3079,6 +3080,12 @@ app.whenReady().then(async () => {
     return launchApp(id, local)
   })
   ipcMain.handle('desktop:isDefaultFileManager', () => isDefaultFileManager())
+  // the header's Control Panel link: this app cannot list a shell namespace, Explorer owns it
+  ipcMain.handle('desktop:openControlPanel', () =>
+    process.platform === 'win32'
+      ? openShellNamespace(WINDOWS_CONTROL_PANEL)
+      : { error: 'windows only' }
+  )
   ipcMain.handle('desktop:setDefaultFileManager', async () => {
     const res = await setDefaultFileManager(process.execPath, app.getAppPath(), app.isPackaged)
     // remember what the classes' default verbs were so «undo» restores them exactly
@@ -3244,6 +3251,13 @@ app.whenReady().then(async () => {
   if (process.platform === 'win32' && bootPrefs.winE !== false) {
     const takeover = winETakeover(true, bootPrefs.winEAutostart !== false)
     if (!takeover.ok && takeover.error) console.error('MFM Win+E takeover:', takeover.error)
+  }
+  // An install from before the folder-class split also owned `Folder`, which made Control Panel,
+  // This PC and friends open here. Converge silently: only real folders are ours now.
+  if (process.platform === 'win32') {
+    void migrateWindowsShellRegistration().catch((e) =>
+      console.error('MFM shell registration cleanup:', e instanceof Error ? e.message : String(e))
+    )
   }
 
   const opens = pendingOpens.length ? [...pendingOpens] : firstPath ? [firstPath] : []

@@ -169,7 +169,8 @@ import {
   TrashIcon,
   TrashXIcon,
   XIcon,
-  ConfirmIcon
+  ConfirmIcon,
+  ControlPanelIcon
 } from './Icons'
 
 let tabCounter = 1
@@ -4611,6 +4612,15 @@ export default function App() {
         >
           {hidden ? <EyeIcon /> : <EyeOffIcon />}
         </button>
+        {api.platform === 'win32' && (
+          <button
+            className="tb"
+            title={t('کنترل پنل ویندوز')}
+            onClick={() => void api.openControlPanel()}
+          >
+            <ControlPanelIcon />
+          </button>
+        )}
         <button
           className={'tb' + (settingsOpen ? ' on' : '')}
           title={t(t('تنظیمات'))}

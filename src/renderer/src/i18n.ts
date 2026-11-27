@@ -244,6 +244,8 @@ const EN: Record<string, string> = {
   'جداسازی انجام نشد': 'Unmount failed',
   'مدیر فایل پیش‌فرض سیستم': 'System default file manager',
   'این برنامه مدیر فایل پیش‌فرض سیستم برای باز کردن پوشه‌ها است': 'This app is the default file manager for opening folders',
+  'این برنامه همهٔ پوشه‌های واقعی را باز می‌کند؛ Control Panel و This PC همان‌طور در Explorer می‌مانند':
+    'Every real folder opens here; Control Panel and This PC stay in Explorer',
   'باز کردن پوشه‌ها از برنامه‌های دیگر در این برنامه انجام شود': 'Make this app handle folders opened from other applications',
   'پیش‌فرض است': 'Default',
   'بازگرداندن به ویندوز': 'Restore Windows handling',
@@ -957,6 +959,7 @@ const EN: Record<string, string> = {
   '{n} مورد در آرشیو': '{n} items in the archive',
   '… فقط {n} مورد اول نشان داده شد': '… only the first {n} items are listed',
   'پیش‌نمایش برای این نوع فایل نیست': 'No preview for this file type',
+  'کنترل پنل ویندوز': 'Windows Control Panel',
   'ویرایش‌شده': 'Edited',
   'کپی تصویر در کلیپ‌بورد (Ctrl+C)': 'Copy image to clipboard (Ctrl+C)',
   'تصویر در کلیپ‌بورد کپی شد': 'Image copied to the clipboard',

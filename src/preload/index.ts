@@ -83,6 +83,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   reveal: (path: string) => ipcRenderer.invoke('app:reveal', path),
   isDefaultFileManager: () => ipcRenderer.invoke('desktop:isDefaultFileManager'),
+  /** Windows: the header's Control Panel link, opened by Explorer (a shell namespace has no path) */
+  openControlPanel: () => ipcRenderer.invoke('desktop:openControlPanel'),
   setDefaultFileManager: () => ipcRenderer.invoke('desktop:setDefaultFileManager'),
   clearDefaultFileManager: () => ipcRenderer.invoke('desktop:clearDefaultFileManager'),
   dragOut: (files: string[]) => ipcRenderer.send('app:dragOut', files),
